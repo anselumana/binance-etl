@@ -1,11 +1,14 @@
 import copy
+import pandas as pd
 from utils import log, flatten
 
 
 
 class OrderBook:
-    def __init__(self):
+    def __init__(self, price_range_for_aggregation=100):
+        self.price_range_for_aggregation = price_range_for_aggregation
         self.history = []
+        self.last_state = {}
         self.last_delta = None
         self.first_update_processed = False
 
@@ -14,11 +17,11 @@ class OrderBook:
         Sets the initial state for the order book.
         The 'initial_state' is shaped as https://api.binance.com/api/v3/depth response.
         """
-        self.history.append({
+        self.last_state = {
             't': 0,
-            'bids': [{'p': bid[0], 'q': bid[1]} for bid in initial_state['bids']],
-            'asks': [{'p': ask[0], 'q': ask[1]} for ask in initial_state['asks']],
-        })
+            'bids': [{'p': float(bid[0]), 'q': float(bid[1])} for bid in initial_state['bids']],
+            'asks': [{'p': float(ask[0]), 'q': float(ask[1])} for ask in initial_state['asks']],
+        }
         log(f'initialized local order book with snapshot.last_update_id = {initial_state['lastUpdateId']}')
 
     def update(self, delta: dict):
@@ -31,8 +34,7 @@ class OrderBook:
         bids = delta['b']
         asks = delta['a']
         # get and clone last state
-        state = self.history[-1]
-        next_state: dict = copy.deepcopy(state)
+        next_state: dict = copy.deepcopy(self.last_state)
         # update time
         next_state['t'] = delta['E']
         # if this is the first update, remove initial snapshot
@@ -42,8 +44,8 @@ class OrderBook:
             self.first_update_processed = True
         # update bids
         for bid in bids:
-            price = bid[0]
-            quantity = bid[1]
+            price = float(bid[0])
+            quantity = float(bid[1])
             # start by removing the price level
             next_state['bids'] = [bid for bid in next_state['bids'] if price not in bid]
             # then, if quantity is not 0, set the new one
@@ -51,20 +53,41 @@ class OrderBook:
                 next_state['bids'].append({'p': price, 'q': quantity})
         # update asks
         for ask in asks:
-            price = ask[0]
-            quantity = ask[1]
+            price = float(ask[0])
+            quantity = float(ask[1])
             # start by removing the price level
             next_state['asks'] = [ask for ask in next_state['asks'] if price not in ask]
             # then, if quantity is not 0, set the new one
             if quantity != 0:
                 next_state['asks'].append({'p': price, 'q': quantity})
-        # sort bids and asks
-        next_state['bids'] = sorted(next_state['bids'], key=lambda x: x['p'], reverse=True)
-        next_state['asks'] = sorted(next_state['asks'], key=lambda x: x['p'])
         # save new state
-        self.history.append(next_state)
+        self.last_state = next_state
+        # aggregate current book
+        aggregated_book = self._aggregate_book(next_state)
+        # append current book to history
+        self.history.append(aggregated_book)
         # logs
         log(f'updated local book to t = {delta['E']} with {delta['u'] - delta['U']} new events from {delta['U']} to {delta['u']} ({len(bids)} new bids, {len(asks)} new asks)')
+    
+    def _aggregate_book(self, book: dict):
+        aggregated = copy.deepcopy(book)
+        aggregated['bids'] = self._aggregate_book_side(book['bids'], type='bids')
+        aggregated['asks'] = self._aggregate_book_side(book['asks'], type='asks')
+        return aggregated
+
+    def _aggregate_book_side(self, levels: list, type: str):
+        # build df
+        df = pd.DataFrame(levels)
+        # create culumn with truncated prices based on price range
+        rng = self.price_range_for_aggregation
+        df['price_range'] = (df['p'] // rng) * rng
+        # group by price range
+        aggregated = df.groupby('price_range').agg({'q': 'sum'}).reset_index()
+        # rename back to 'p'
+        aggregated.rename(columns={'price_range': 'p'}, inplace=True)
+        aggregated = aggregated.sort_values(by='p', ascending=type=='asks')
+        return aggregated.to_dict(orient='records')
+
     
     def _is_consistent(self, delta: dict):
         is_consistent = True
@@ -100,7 +123,7 @@ class OrderBook:
         asks_csv = os.path.join(base_path, 'asks.csv')
         # save to csv
         bids.to_csv(bids_csv, index=False)
-        bids.to_csv(asks_csv, index=False)
+        asks.to_csv(asks_csv, index=False)
         # log
         log(f'successfully saved book to:')
         log(bids_csv)
