@@ -25,6 +25,10 @@ class OrderBookRecorder():
                                     on_open=self._on_open)
         ws.run_forever()
     
+    def stop(self):
+        log(f'stopping order book recording for binance:{self.symbol}')
+        self.book.to_csv('./output/')
+    
     def _sync_book(self, delta: dict):
         log(f'trying to sync order book...')
         self.deltas.append(delta)
@@ -70,6 +74,7 @@ class OrderBookRecorder():
 
     def _on_close(self, ws, x, y):
         log("websocket closed")
+        log('')
         log(f'total book snapshots:           {len(self.book.history)}')
         log(f'total bids in all snapshots:    {sum([len(x['bids']) for x in self.book.history])}')
         log(f'total asks in all snapshots:    {sum([len(x['asks']) for x in self.book.history])}')

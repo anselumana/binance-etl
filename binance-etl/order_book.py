@@ -1,5 +1,5 @@
 import copy
-from utils import log
+from utils import log, flatten
 
 
 
@@ -78,4 +78,30 @@ class OrderBook:
         return is_consistent
 
     def to_csv(self, base_path: str, clear_memory: bool=True):
-        pass
+        log(f'saving order book...')
+        import os
+        import pandas as pd
+        from datetime import datetime, timezone
+        # build dataframes
+        bids = pd.DataFrame({
+            'time': flatten([[datetime.fromtimestamp(x['t'] // 1000, tz=timezone.utc) for y in x['bids']] for x in self.history]),
+            'price': flatten([[y['p'] for y in x['bids']] for x in self.history]),
+            'quantity': flatten([[y['q'] for y in x['bids']] for x in self.history]),
+        })
+        asks = pd.DataFrame({
+            'time': flatten([[datetime.fromtimestamp(x['t'] // 1000, tz=timezone.utc) for y in x['asks']] for x in self.history]),
+            'price': flatten([[y['p'] for y in x['asks']] for x in self.history]),
+            'quantity': flatten([[y['q'] for y in x['asks']] for x in self.history]),
+        })
+        # create path if it doesn't exist
+        if not os.path.exists(base_path):
+            os.makedirs(base_path)
+        bids_csv = os.path.join(base_path, 'bids.csv')
+        asks_csv = os.path.join(base_path, 'asks.csv')
+        # save to csv
+        bids.to_csv(bids_csv, index=False)
+        bids.to_csv(asks_csv, index=False)
+        # log
+        log(f'successfully saved book to:')
+        log(bids_csv)
+        log(asks_csv)

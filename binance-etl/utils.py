@@ -4,6 +4,9 @@ import requests
 def log(s: str):
     print(f'[{datetime.now(tz=timezone.utc)}] {s}')
 
+def flatten(list_of_lists: list):
+    return sum(list_of_lists, [])
+
 def get_order_book_snapshot(url: str, symbol: str, limit: int=1000):
     """
     Function to fetch the initial order book snapshot
