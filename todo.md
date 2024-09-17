@@ -12,3 +12,16 @@ OK * better logger
 ## future feats
 * add support for export to bigdata destinations (parquet/bigquery)
 * add support for binance futures
+
+## for public
+* kaggle
+    * good EDA notebook (good viz)
+    * dataset
+        * 1 second
+            * BTC/USDT for 24 hours
+        * 1 minute
+            * BTC/USDT for 1 week
+            * ETH/USDT for 1 week
+            * SOL/USDT for 1 week
+* github
+    * good code and README
