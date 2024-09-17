@@ -2,7 +2,8 @@
 OK * add param for max depth (es. 10% from BOB)
 OK * parametrize (w/ validation)
 OK * read params from env
-* better logger
+OK * better logger
+* add time resolution for aggregation
 * buffer csv writes
 * dockerize
 * clean code:
