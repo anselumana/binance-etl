@@ -3,9 +3,12 @@ OK * add param for max depth (es. 10% from BOB)
 OK * parametrize (w/ validation)
 OK * read params from env
 OK * better logger
-* add time resolution for aggregation
-* buffer csv writes
+OK * buffer csv writes
+OK * generic storage interface
+* handle time resolution for aggregation
 * dockerize
+* good README
+* go public
 
 ## future feats
 * add support for export to bigdata destinations (parquet/bigquery)

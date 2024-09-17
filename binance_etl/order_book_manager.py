@@ -3,8 +3,9 @@ import json
 import pandas as pd
 import websocket
 from logger import get_logger
-from utils import get_order_book_snapshot, flatten
+from utils import get_order_book_snapshot
 from consts import BINANCE_WEBSOCKET_URL
+from storage import StorageProvider
 
 
 logger = get_logger(__name__)
@@ -17,13 +18,25 @@ class OrderBookManager:
     def __init__(self,
                  symbol: str,
                  price_resolution: float = 1,
-                 max_depth = 50):
+                 max_depth = 50,
+                 time_resolution_in_seconds: int = 1,
+                 storage_provider: StorageProvider = None,
+                 storage_batch_size: int = 100):
         # params validation
-        self._raise_if_invalid_params(symbol, price_resolution, max_depth)
+        self._raise_if_invalid_params(
+            symbol,
+            price_resolution,
+            max_depth,
+            time_resolution_in_seconds,
+            storage_provider,
+            storage_batch_size)
         # set params
         self.symbol = symbol
         self.price_resolution = price_resolution
         self.max_depth = max_depth
+        self.time_resolution_in_seconds = time_resolution_in_seconds
+        self.storage_provider = storage_provider
+        self.storage_batch_size = storage_batch_size
         # web socket client
         self.ws: websocket.WebSocketApp = None
         # current state of the order book at full resolution
@@ -38,6 +51,10 @@ class OrderBookManager:
         self.deltas_buffer: list = []
         # (only used for initial sync) flag to indicate if inital sync was successful
         self.initial_sync_successful: bool = False
+        # stats
+        self.total_snapshots: int = 0
+        self.total_bids: int = 0
+        self.total_asks: int = 0
     
     def start(self):
         """
@@ -58,17 +75,14 @@ class OrderBookManager:
         Gracefully stops order book recording.
         """
         logger.info(f'stopping order book recording for binance:{self.symbol}')
+        # close websocket connection
         self.ws.close()
-        # save to csv
-        self.to_csv('./output/')
         # log stats
-        history = self.get_order_book_history()
         logger.debug('')
-        logger.debug(f'total raw book snapshots:       {len(self.book_history)}')
-        logger.debug(f'total book snapshots:           {len(history)}')
-        logger.debug(f'total bids in all snapshots:    {sum([len(x['bids']) for x in history])}')
-        logger.debug(f'total asks in all snapshots:    {sum([len(x['asks']) for x in history])}')
-        logger.debug(f'average bids+asks per snapshot: {sum([len(x['bids']) + len(x['asks']) for x in history]) / (len(history) or 1):.2f}')
+        logger.debug(f'total book snapshots:           {self.total_snapshots}')
+        logger.debug(f'total bids in all snapshots:    {self.total_bids}')
+        logger.debug(f'total asks in all snapshots:    {self.total_asks}')
+        logger.debug(f'average bids+asks per snapshot: {(self.total_bids + self.total_asks) / (self.total_snapshots or 1):.1f}')
         
     def get_order_book_history(self) -> list:
         """
@@ -85,6 +99,7 @@ class OrderBookManager:
             self.initial_sync_successful = self._sync_book(delta)
             return
         self._process_update(delta)
+        self._save_if_needed()
 
     def _on_error(self, ws, error):
         """
@@ -247,40 +262,26 @@ class OrderBookManager:
         self.last_delta = delta
         return is_consistent
 
-    def to_csv(self, base_path: str, clear_memory: bool=True):
-        """
-        Saves book history to csv.
-        """
-        logger.info(f'saving order book...')
-        import os
-        import pandas as pd
-        from datetime import datetime, timezone
+    def _save_if_needed(self):
         history = self.get_order_book_history()
-        # build dataframes
-        bids = pd.DataFrame({
-            'time': flatten([[datetime.fromtimestamp(x['t'] // 1000, tz=timezone.utc) for y in x['bids']] for x in history]),
-            'price': flatten([[y['p'] for y in x['bids']] for x in history]),
-            'quantity': flatten([[y['q'] for y in x['bids']] for x in history]),
-        })
-        asks = pd.DataFrame({
-            'time': flatten([[datetime.fromtimestamp(x['t'] // 1000, tz=timezone.utc) for y in x['asks']] for x in history]),
-            'price': flatten([[y['p'] for y in x['asks']] for x in history]),
-            'quantity': flatten([[y['q'] for y in x['asks']] for x in history]),
-        })
-        # create path if it doesn't exist
-        if not os.path.exists(base_path):
-            os.makedirs(base_path)
-        bids_csv = os.path.join(base_path, 'bids.csv')
-        asks_csv = os.path.join(base_path, 'asks.csv')
-        # save to csv
-        bids.to_csv(bids_csv, index=False)
-        asks.to_csv(asks_csv, index=False)
-        # log
-        logger.info(f'successfully saved book to:')
-        logger.info(f'  {bids_csv}')
-        logger.info(f'  {bids_csv}')
+        if len(history) != self.storage_batch_size:
+            return
+        # save current batch
+        self.storage_provider.save(history)
+        # update stats
+        self.total_snapshots += len(history)
+        self.total_bids += sum([len(x['bids']) for x in history])
+        self.total_asks += sum([len(x['asks']) for x in history])
+        # clear memory
+        self.book_history = []
     
-    def _raise_if_invalid_params(self, symbol: str, price_resolution: float, max_depth: int):
+    def _raise_if_invalid_params(self,
+                                 symbol: str,
+                                 price_resolution: float,
+                                 max_depth: int,
+                                 time_resolution_in_seconds: int,
+                                 storage_provider: StorageProvider | None,
+                                 storage_batch_size: int):
         if price_resolution <= 0:
             raise Exception(f'invalid parameter \'price_resolution\': must be > 0.')
         if max_depth <= 0:
@@ -288,3 +289,13 @@ class OrderBookManager:
         max_max_depth = 1000
         if max_depth > max_max_depth:
             raise Exception(f'invalid parameter \'max_depth\': must be < {max_max_depth}')
+        if time_resolution_in_seconds < 1:
+            raise Exception(f'invalid parameter \'time_resolution_in_seconds\': must be > 1.')
+        if time_resolution_in_seconds > 1 and time_resolution_in_seconds % 60 != 0:
+            raise Exception(f'invalid parameter \'time_resolution_in_seconds\': can either be 1 second or be must be a multiple of 60.')
+        if not isinstance(storage_provider, StorageProvider):
+            raise Exception(f'invalid parameter \'storage_provider\': must implement the StorageProvider interface.')
+        if storage_batch_size <= 0:
+            raise Exception(f'invalid parameter \'storage_batch_size\': must be > 0.')
+        if storage_batch_size > 1_000_000:
+            raise Exception(f'invalid parameter \'storage_batch_size\': must be <= 1\'000\'000.')
