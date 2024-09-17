@@ -12,10 +12,10 @@ def get_order_book_snapshot(symbol: str, limit: int=1000):
     """
     Function to fetch the initial order book snapshot
     """
-    params = {'symbol': symbol, 'limit': limit}
+    params = {'symbol': symbol.upper(), 'limit': limit}
     response = requests.get(BINANCE_REST_URL, params=params)
     if response.status_code == 200:
         return response.json()
     else:
-        log("failed to fetch order book snapshot:", response.status_code)
+        log(f'failed to fetch order book snapshot: {response.json()}')
         return None
