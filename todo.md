@@ -1,8 +1,8 @@
 # todo
-* parametrize
-* read params from env
-* dockerize
 * add param for max depth (es. 10% from BOB)
+* parametrize (w/ validation)
+OK * read params from env
+* dockerize
 * buffer csv writes
 * better logger
 * clean code:

@@ -11,21 +11,26 @@ class OrderBookManager:
     Manages the local order book mirror.\n
     Ref: https://binance-docs.github.io/apidocs/spot/en/#how-to-manage-a-local-order-book-correctly.
     """
-    def __init__(self, symbol: str, price_range_for_aggregation: float = 100):
+    def __init__(self,
+                 symbol: str,
+                 price_resolution: float = 1,
+                 max_depth = 50):
+        # params validation
+        self._raise_if_invalid_params(symbol, price_resolution, max_depth)
+        # set params
+        self.symbol = symbol
+        self.price_resolution = price_resolution
+        self.max_depth = max_depth
         # web socket client
         self.ws: websocket.WebSocketApp = None
-        # symbol
-        self.symbol = symbol
-        # price range used for aggregating the book
-        self.price_range_for_aggregation: float = price_range_for_aggregation
         # current state of the order book at full resolution
-        self.current_state: dict = None
+        self.current_book: dict = None
         # local order book history
-        self.history: list = []
+        self.book_history: list = []
         # last received delta (used to check that the subsequent one is correct)
         self.last_delta: dict = None
         # (only used for initial sync) initial snapshot fetched from the REST API
-        self.initial_snapshot: dict = None
+        self.initial_book_snapshot: dict = None
         # (only used for initial sync) buffered deltas
         self.deltas_buffer: list = []
         # (only used for initial sync) flag to indicate if inital sync was successful
@@ -56,7 +61,7 @@ class OrderBookManager:
         # log stats
         history = self.get_order_book_history()
         log('')
-        log(f'total raw book snapshots:       {len(self.history)}')
+        log(f'total raw book snapshots:       {len(self.book_history)}')
         log(f'total book snapshots:           {len(history)}')
         log(f'total bids in all snapshots:    {sum([len(x['bids']) for x in history])}')
         log(f'total asks in all snapshots:    {sum([len(x['asks']) for x in history])}')
@@ -66,7 +71,7 @@ class OrderBookManager:
         """
         Returns the local order book history.
         """
-        return self.history
+        return self.book_history
 
     def _on_message(self, ws, message):
         """
@@ -105,14 +110,14 @@ class OrderBookManager:
         """
         log(f'trying to sync order book...')
         self.deltas_buffer.append(delta)
-        if self.initial_snapshot is None:
+        if self.initial_book_snapshot is None:
             log(f'fetching order book snapshot from the REST API')
-            self.initial_snapshot = get_order_book_snapshot(self.symbol, limit=1000)
-            if self.initial_snapshot is None:
+            self.initial_book_snapshot = get_order_book_snapshot(self.symbol, limit=1000)
+            if self.initial_book_snapshot is None:
                 log(f'failed to sync: unable to get initial snapshot from the REST API')
                 return False
-            log(f'snapshot fetched (last update id: {self.initial_snapshot['lastUpdateId']})')
-        last_update_id = self.initial_snapshot['lastUpdateId']
+            log(f'snapshot fetched (last update id: {self.initial_book_snapshot['lastUpdateId']})')
+        last_update_id = self.initial_book_snapshot['lastUpdateId']
         valid_deltas = [x for x in self.deltas_buffer if x['u'] > last_update_id]
         if len(valid_deltas) == 0:
             log(f'failed to sync: all buffered deltas are older than the snapshot')
@@ -123,7 +128,7 @@ class OrderBookManager:
                 # we found the first delta to process, so we can init the book
                 # with the init snapshot and apply the current delta
                 found_first_event_to_process = True
-                self._set_initial_state(initial_snapshot=self.initial_snapshot)
+                self._set_initial_state(initial_snapshot=self.initial_book_snapshot)
                 self._process_update(d)
             else:
                 # if we found the first event to process, we go on and apply 
@@ -143,7 +148,7 @@ class OrderBookManager:
         Sets the initial state of the order book.
         'initial_state' is shaped as https://api.binance.com/api/v3/depth response.
         """
-        self.current_state = {
+        self.current_book = {
             't': 0,
             'bids': [{'p': float(bid[0]), 'q': float(bid[1])} for bid in initial_snapshot['bids']],
             'asks': [{'p': float(ask[0]), 'q': float(ask[1])} for ask in initial_snapshot['asks']],
@@ -156,40 +161,40 @@ class OrderBookManager:
         This method should only be called once the initial state has been set.
         'delta' is shaped as wss://stream.binance.com:9443/ws/{symbol}@depth messages.
         """
-        if self.current_state is None:
+        if self.current_book is None:
             raise Exception('cannot process order book updates if current state is None.')
         if not self._is_consistent(delta):
             raise Exception('failed to update order book: received inconsistent delta')
         bids = delta['b']
         asks = delta['a']
         # get and clone last state
-        next_state: dict = copy.deepcopy(self.current_state)
+        next_book: dict = copy.deepcopy(self.current_book)
         # update time
-        next_state['t'] = delta['E']
+        next_book['t'] = delta['E']
         # update bids
         for bid in bids:
             price = float(bid[0])
             quantity = float(bid[1])
             # start by removing the price level
-            next_state['bids'] = [bid for bid in next_state['bids'] if price not in bid]
+            next_book['bids'] = [bid for bid in next_book['bids'] if price not in bid]
             # then, if quantity is not 0, set the new one
             if quantity != 0:
-                next_state['bids'].append({'p': price, 'q': quantity})
+                next_book['bids'].append({'p': price, 'q': quantity})
         # update asks
         for ask in asks:
             price = float(ask[0])
             quantity = float(ask[1])
             # start by removing the price level
-            next_state['asks'] = [ask for ask in next_state['asks'] if price not in ask]
+            next_book['asks'] = [ask for ask in next_book['asks'] if price not in ask]
             # then, if quantity is not 0, set the new one
             if quantity != 0:
-                next_state['asks'].append({'p': price, 'q': quantity})
+                next_book['asks'].append({'p': price, 'q': quantity})
         # save new state
-        self.current_state = next_state
+        self.current_book = next_book
         # aggregate current book
-        aggregated_book = self._aggregate_book(next_state)
+        aggregated_book = self._aggregate_book(next_book)
         # append current book to history
-        self.history.append(aggregated_book)
+        self.book_history.append(aggregated_book)
         # logs
         log(f'updated local book to t = {delta['E']} with {delta['u'] - delta['U']} new events from {delta['U']} to {delta['u']} ({len(bids)} new bids, {len(asks)} new asks)')
     
@@ -199,23 +204,28 @@ class OrderBookManager:
         Aggregation in based on self.price_range_for_aggregation.
         """
         aggregated = copy.deepcopy(book)
-        aggregated['bids'] = self._aggregate_book_side(book['bids'], type='bids')
-        aggregated['asks'] = self._aggregate_book_side(book['asks'], type='asks')
+        aggregated['bids'] = self._aggregate_page(book['bids'], is_bids=True)
+        aggregated['asks'] = self._aggregate_page(book['asks'], is_bids=False)
         return aggregated
 
-    def _aggregate_book_side(self, levels: list, type: str):
+    def _aggregate_page(self, levels: list, is_bids: bool):
         """
-        Aggregates bids/asks.
+        Aggregates a book page (bids or asks).
         """
+        best_of_book_price = levels[0]['p']
+        max_abs_price = self.price_resolution * self.max_depth
+        cutoff = best_of_book_price - max_abs_price if is_bids else best_of_book_price + max_abs_price
+        levels = [x for x in levels if x['p'] > cutoff] if is_bids else [x for x in levels if x['p'] < cutoff]
+        # build dataframe
         df = pd.DataFrame(levels)
         # create culumn with truncated prices based on price range
-        df['price_range'] = (df['p'] // self.price_range_for_aggregation) * self.price_range_for_aggregation
+        df['price_range'] = (df['p'] // self.price_resolution) * self.price_resolution
         # group by price range
         aggregated = df.groupby('price_range').agg({'q': 'sum'}).reset_index()
         # rename back to 'p'
         aggregated.rename(columns={'price_range': 'p'}, inplace=True)
         # sort asc/desc based on asks/bids
-        aggregated = aggregated.sort_values(by='p', ascending=type=='asks')
+        aggregated = aggregated.sort_values(by='p', ascending=not is_bids)
         # return back to dict
         return aggregated.to_dict(orient='records')
 
@@ -266,3 +276,12 @@ class OrderBookManager:
         log(f'successfully saved book to:')
         log(f'  {bids_csv}')
         log(f'  {bids_csv}')
+    
+    def _raise_if_invalid_params(self, symbol: str, price_resolution: float, max_depth: int):
+        if price_resolution <= 0:
+            raise Exception(f'invalid parameter \'price_resolution\': must be > 0.')
+        if max_depth <= 0:
+            raise Exception(f'invalid parameter \'max_depth\': must be > 0.')
+        max_max_depth = 1000
+        if max_depth > max_max_depth:
+            raise Exception(f'invalid parameter \'max_depth\': must be < {max_max_depth}')
