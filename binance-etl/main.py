@@ -1,8 +1,12 @@
+import os
 import sys
 import signal
 from order_book_manager import OrderBookManager
 from utils import log
+from dotenv import load_dotenv
 
+
+load_dotenv()
 
 manager = OrderBookManager('BTCUSDT')
 
