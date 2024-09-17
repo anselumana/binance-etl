@@ -2,9 +2,12 @@ import copy
 import json
 import pandas as pd
 import websocket
-from utils import get_order_book_snapshot, log, flatten
+from logger import get_logger
+from utils import get_order_book_snapshot, flatten
 from consts import BINANCE_WEBSOCKET_URL
 
+
+logger = get_logger(__name__)
 
 class OrderBookManager:
     """
@@ -40,9 +43,9 @@ class OrderBookManager:
         """
         Starts order book recording.
         """
-        log(f'starting order book recording for binance:{self.symbol}')
+        logger.info(f'starting order book recording for binance:{self.symbol}')
         url = BINANCE_WEBSOCKET_URL.format(self.symbol.lower())
-        log(f'connecting to {url}')
+        logger.info(f'connecting to {url}')
         self.ws = websocket.WebSocketApp(url,
             on_message=self._on_message,
             on_error=self._on_error,
@@ -54,18 +57,18 @@ class OrderBookManager:
         """
         Gracefully stops order book recording.
         """
-        log(f'stopping order book recording for binance:{self.symbol}')
+        logger.info(f'stopping order book recording for binance:{self.symbol}')
         self.ws.close()
         # save to csv
         self.to_csv('./output/')
         # log stats
         history = self.get_order_book_history()
-        log('')
-        log(f'total raw book snapshots:       {len(self.book_history)}')
-        log(f'total book snapshots:           {len(history)}')
-        log(f'total bids in all snapshots:    {sum([len(x['bids']) for x in history])}')
-        log(f'total asks in all snapshots:    {sum([len(x['asks']) for x in history])}')
-        log(f'average bids+asks per snapshot: {sum([len(x['bids']) + len(x['asks']) for x in history]) / (len(history) or 1):.2f}')
+        logger.debug('')
+        logger.debug(f'total raw book snapshots:       {len(self.book_history)}')
+        logger.debug(f'total book snapshots:           {len(history)}')
+        logger.debug(f'total bids in all snapshots:    {sum([len(x['bids']) for x in history])}')
+        logger.debug(f'total asks in all snapshots:    {sum([len(x['asks']) for x in history])}')
+        logger.debug(f'average bids+asks per snapshot: {sum([len(x['bids']) + len(x['asks']) for x in history]) / (len(history) or 1):.2f}')
         
     def get_order_book_history(self) -> list:
         """
@@ -87,19 +90,19 @@ class OrderBookManager:
         """
         WebSocket on error handler.
         """
-        log(f"websocket error: {error}")
+        logger.error(f"websocket error: {error}")
 
     def _on_close(self, ws, x, y):
         """
         WebSocket on close handler.
         """
-        log("websocket closed")
+        logger.info("websocket closed")
 
     def _on_open(self, ws):
         """
         WebSocket on open handler.
         """
-        log("websocket connected")
+        logger.info("websocket connected")
     
     def _sync_book(self, delta: dict) -> bool:
         """
@@ -108,19 +111,19 @@ class OrderBookManager:
         Once this operation returns successfully, the local book is synced and
         new updates can be applied.
         """
-        log(f'trying to sync order book...')
+        logger.info(f'trying to sync order book...')
         self.deltas_buffer.append(delta)
         if self.initial_book_snapshot is None:
-            log(f'fetching order book snapshot from the REST API')
+            logger.info(f'fetching order book snapshot from the REST API')
             self.initial_book_snapshot = get_order_book_snapshot(self.symbol, limit=1000)
             if self.initial_book_snapshot is None:
-                log(f'failed to sync: unable to get initial snapshot from the REST API')
+                logger.warning(f'failed to sync: unable to get initial snapshot from the REST API')
                 return False
-            log(f'snapshot fetched (last update id: {self.initial_book_snapshot['lastUpdateId']})')
+            logger.info(f'snapshot fetched (last update id: {self.initial_book_snapshot['lastUpdateId']})')
         last_update_id = self.initial_book_snapshot['lastUpdateId']
         valid_deltas = [x for x in self.deltas_buffer if x['u'] > last_update_id]
         if len(valid_deltas) == 0:
-            log(f'failed to sync: all buffered deltas are older than the snapshot')
+            logger.warning(f'failed to sync: all buffered deltas are older than the snapshot')
             return False
         found_first_event_to_process = False
         for d in valid_deltas:
@@ -138,7 +141,7 @@ class OrderBookManager:
         # clear memory if we've synced successfully
         if found_first_event_to_process:
             self.deltas_buffer = []
-            log(f'successfully synced order book')
+            logger.info(f'successfully synced order book')
         # if we found the first events to process, we'll also have updated our
         # local book (as you can see in the above for loop), so we're in sync
         return found_first_event_to_process
@@ -153,7 +156,7 @@ class OrderBookManager:
             'bids': [{'p': float(bid[0]), 'q': float(bid[1])} for bid in initial_snapshot['bids']],
             'asks': [{'p': float(ask[0]), 'q': float(ask[1])} for ask in initial_snapshot['asks']],
         }
-        log(f'initialized local order book with snapshot.last_update_id = {initial_snapshot['lastUpdateId']}')
+        logger.info(f'initialized local order book with snapshot.last_update_id = {initial_snapshot['lastUpdateId']}')
 
     def _process_update(self, delta: dict):
         """
@@ -196,7 +199,7 @@ class OrderBookManager:
         # append current book to history
         self.book_history.append(aggregated_book)
         # logs
-        log(f'updated local book to t = {delta['E']} with {delta['u'] - delta['U']} new events from {delta['U']} to {delta['u']} ({len(bids)} new bids, {len(asks)} new asks)')
+        logger.debug(f'updated local book to t = {delta['E']} with {delta['u'] - delta['U']} new events from {delta['U']} to {delta['u']} ({len(bids)} new bids, {len(asks)} new asks)')
     
     def _aggregate_book(self, book: dict):
         """
@@ -239,7 +242,7 @@ class OrderBookManager:
             first_update_id = delta['U']
             previous_delta_last_update_id = self.last_delta['u']
             if first_update_id != previous_delta_last_update_id + 1:
-                log(f'warning: current delta has a diff of {first_update_id - previous_delta_last_update_id + 1} updates from the last ({first_update_id} vs {previous_delta_last_update_id})')
+                logger.info(f'warning: current delta has a diff of {first_update_id - previous_delta_last_update_id + 1} updates from the last ({first_update_id} vs {previous_delta_last_update_id})')
                 is_consistent = False
         self.last_delta = delta
         return is_consistent
@@ -248,7 +251,7 @@ class OrderBookManager:
         """
         Saves book history to csv.
         """
-        log(f'saving order book...')
+        logger.info(f'saving order book...')
         import os
         import pandas as pd
         from datetime import datetime, timezone
@@ -273,9 +276,9 @@ class OrderBookManager:
         bids.to_csv(bids_csv, index=False)
         asks.to_csv(asks_csv, index=False)
         # log
-        log(f'successfully saved book to:')
-        log(f'  {bids_csv}')
-        log(f'  {bids_csv}')
+        logger.info(f'successfully saved book to:')
+        logger.info(f'  {bids_csv}')
+        logger.info(f'  {bids_csv}')
     
     def _raise_if_invalid_params(self, symbol: str, price_resolution: float, max_depth: int):
         if price_resolution <= 0:
