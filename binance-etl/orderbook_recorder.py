@@ -3,38 +3,87 @@ import websocket
 from utils import log
 from order_book import OrderBook
 from utils import get_order_book_snapshot
+from consts import BINANCE_WEBSOCKET_URL
 
 
 class OrderBookRecorder():
+    """
+    Manages websocket connection and the local order book mirror.\n
+    Ref: https://binance-docs.github.io/apidocs/spot/en/#how-to-manage-a-local-order-book-correctly.
+    """
     def __init__(self, symbol: str):
-        self.rest_url = 'https://api.binance.com/api/v3/depth'
-        self.ws_url = f'wss://stream.binance.com:9443/ws/{symbol.lower()}@depth'
-        self.symbol = symbol
+        self.symbol: str = symbol
+        self.ws: websocket.WebSocketApp = None
         self.book = OrderBook()
-        self.is_sync = False
-        self.initial_snapshot = None
-        self.deltas = []
+        self.is_sync: bool = False
+        self.initial_snapshot: dict = None
+        self.deltas: list = []
     
     def start(self):
+        """
+        Starts order book recording.
+        """
         log(f'starting order book recording for binance:{self.symbol}')
-        log(f'connecting to {self.ws_url}')
-        ws = websocket.WebSocketApp(self.ws_url,
+        url = BINANCE_WEBSOCKET_URL.format(self.symbol.lower())
+        log(f'connecting to {url}')
+        self.ws = websocket.WebSocketApp(url,
                                     on_message=self._on_message,
                                     on_error=self._on_error,
                                     on_close=self._on_close,
                                     on_open=self._on_open)
-        ws.run_forever()
+        self.ws.run_forever()
     
     def stop(self):
+        """
+        Gracefully stops order book recording.
+        """
         log(f'stopping order book recording for binance:{self.symbol}')
+        self.ws.close()
         self.book.to_csv('./output/')
+
+    def _on_message(self, ws, message):
+        """
+        WebSocket on message handler.
+        """
+        delta = json.loads(message)
+        if not self.is_sync:
+            self.is_sync = self._sync_book(delta)
+            return
+        self.book.update(delta)
+
+    def _on_error(self, ws, error):
+        """
+        WebSocket on error handler.
+        """
+        log(f"websocket error: {error}")
+
+    def _on_close(self, ws, x, y):
+        """
+        WebSocket on close handler.
+        """
+        log("websocket closed")
+        log('')
+        log(f'total book snapshots:           {len(self.book.history)}')
+        log(f'total bids in all snapshots:    {sum([len(x['bids']) for x in self.book.history])}')
+        log(f'total asks in all snapshots:    {sum([len(x['asks']) for x in self.book.history])}')
+        log(f'average bids+asks per snapshot: {sum([len(x['bids']) + len(x['asks']) for x in self.book.history]) / (len(self.book.history) or 1):.2f}')
+
+    def _on_open(self, ws):
+        """
+        WebSocket on open handler.
+        """
+        log("websocket connected")
     
-    def _sync_book(self, delta: dict):
+    def _sync_book(self, delta: dict) -> bool:
+        """
+        Retrieves initial order book snapshots and syncs websocket deltas to the snapshots.\n
+        Ref: https://binance-docs.github.io/apidocs/spot/en/#how-to-manage-a-local-order-book-correctly.
+        """
         log(f'trying to sync order book...')
         self.deltas.append(delta)
         if self.initial_snapshot is None:
             log(f'fetching order book snapshot from the REST API')
-            self.initial_snapshot = get_order_book_snapshot(self.rest_url, self.symbol, limit=1000)
+            self.initial_snapshot = get_order_book_snapshot(self.symbol, limit=1000)
             if self.initial_snapshot is None:
                 log(f'failed to sync')
                 return False
@@ -60,25 +109,3 @@ class OrderBookRecorder():
         # if we found the first events to process, we'll also have updated our
         # local book (as you can see in the above for loop), so we're in sync
         return found_first_event_to_process
-
-
-    def _on_message(self, ws, message):
-        delta = json.loads(message)
-        if not self.is_sync:
-            self.is_sync = self._sync_book(delta)
-            return
-        self.book.update(delta)
-
-    def _on_error(self, ws, error):
-        log(f"websocket error: {error}")
-
-    def _on_close(self, ws, x, y):
-        log("websocket closed")
-        log('')
-        log(f'total book snapshots:           {len(self.book.history)}')
-        log(f'total bids in all snapshots:    {sum([len(x['bids']) for x in self.book.history])}')
-        log(f'total asks in all snapshots:    {sum([len(x['asks']) for x in self.book.history])}')
-        log(f'average bids+asks per snapshot: {sum([len(x['bids']) + len(x['asks']) for x in self.book.history]) / (len(self.book.history) or 1):.2f}')
-
-    def _on_open(self, ws):
-        log("websocket connected")

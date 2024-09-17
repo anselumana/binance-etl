@@ -126,5 +126,5 @@ class OrderBook:
         asks.to_csv(asks_csv, index=False)
         # log
         log(f'successfully saved book to:')
-        log(bids_csv)
-        log(asks_csv)
+        log(f'  {bids_csv}')
+        log(f'  {bids_csv}')
