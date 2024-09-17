@@ -6,22 +6,21 @@ OK * better logger
 * add time resolution for aggregation
 * buffer csv writes
 * dockerize
-* clean code:
-    * clean sep of concerns (extract, transform, load)
 
 ## future feats
 * add support for export to bigdata destinations (parquet/bigquery)
 * add support for binance futures
+* add support for multiple concurrent symbols
 
 ## for public
 * kaggle
     * good EDA notebook (good viz)
     * dataset
         * 1 second
-            * BTC/USDT for 24 hours
+            * BTC/USDT for 1 day
         * 1 minute
-            * BTC/USDT for 1 week
-            * ETH/USDT for 1 week
-            * SOL/USDT for 1 week
+            * BTC/USDT for 1 day
+            * ETH/USDT for 1 day
+            * SOL/USDT for 1 day
 * github
     * good code and README

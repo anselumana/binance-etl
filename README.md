@@ -1,5 +1,5 @@
 # Binance ETL
-ETL to record binance order books.
+ETL script to record binance order books.
 
 ## References
 Check these [binance docs][1] to understand how the order book local copy is mainained.
