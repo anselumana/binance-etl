@@ -39,19 +39,15 @@ class OrderBookManager:
         self.storage_batch_size = storage_batch_size
         # web socket client
         self.ws: websocket.WebSocketApp = None
-        # current state of the order book at full resolution
-        self.current_book: dict = None
-        # local order book history
-        self.book_history: list = []
-        # last received delta (used to check that the subsequent one is correct)
-        self.last_delta: dict = None
-        # (only used for initial sync) initial snapshot fetched from the REST API
-        self.initial_book_snapshot: dict = None
-        # (only used for initial sync) buffered deltas
-        self.deltas_buffer: list = []
-        # (only used for initial sync) flag to indicate if inital sync was successful
-        self.initial_sync_successful: bool = False
-        # stats
+        # state variables
+        self.current_book: dict = None             # current state of the order book at tick-level resolution
+        self.previous_book: dict = None            # previous state of the order book at tick-level resolution
+        self.book_snapshots: list = []             # order book snapshots with resolution = price_resolution * time_resolution_in_seconds
+        self.last_book_update: dict = None         # last order book update (used to check consistency of subsequent updates)
+        self.initial_book_snapshot: dict = None    # initial snapshot fetched from the REST API     (only used for initial sync)
+        self.book_updates: list = []               # order book updates buffer                      (only used for initial sync)
+        self.initial_sync_successful: bool = False # flag to indicate if inital sync was successful (only used for initial sync)
+        # debug stats
         self.total_snapshots: int = 0
         self.total_bids: int = 0
         self.total_asks: int = 0
@@ -83,23 +79,25 @@ class OrderBookManager:
         logger.debug(f'total bids in all snapshots:    {self.total_bids}')
         logger.debug(f'total asks in all snapshots:    {self.total_asks}')
         logger.debug(f'average bids+asks per snapshot: {(self.total_bids + self.total_asks) / (self.total_snapshots or 1):.1f}')
-        
-    def get_order_book_history(self) -> list:
-        """
-        Returns the local order book history.
-        """
-        return self.book_history
 
     def _on_message(self, ws, message):
         """
         WebSocket on message handler.
         """
-        delta = json.loads(message)
+        # deresialize order book update
+        update = json.loads(message)
+        # try to sync the order book until successful
         if not self.initial_sync_successful:
-            self.initial_sync_successful = self._sync_book(delta)
+            self.initial_sync_successful = self._sync_book(update)
             return
-        self._process_update(delta)
-        self._save_if_needed()
+        # process the update, updating state
+        self._process_update(update)
+        # handle snapshots
+        if self._should_take_snapshot():
+            self._take_snapshot()
+        # save snapshots to storage
+        if self._should_save_snapshots():
+            self._save_snapshots()
 
     def _on_error(self, ws, error):
         """
@@ -127,7 +125,7 @@ class OrderBookManager:
         new updates can be applied.
         """
         logger.info(f'trying to sync order book...')
-        self.deltas_buffer.append(delta)
+        self.book_updates.append(delta)
         if self.initial_book_snapshot is None:
             logger.info(f'fetching order book snapshot from the REST API')
             self.initial_book_snapshot = get_order_book_snapshot(self.symbol, limit=1000)
@@ -136,7 +134,7 @@ class OrderBookManager:
                 return False
             logger.info(f'snapshot fetched (last update id: {self.initial_book_snapshot['lastUpdateId']})')
         last_update_id = self.initial_book_snapshot['lastUpdateId']
-        valid_deltas = [x for x in self.deltas_buffer if x['u'] > last_update_id]
+        valid_deltas = [x for x in self.book_updates if x['u'] > last_update_id]
         if len(valid_deltas) == 0:
             logger.warning(f'failed to sync: all buffered deltas are older than the snapshot')
             return False
@@ -155,7 +153,7 @@ class OrderBookManager:
                     self._process_update(d)
         # clear memory if we've synced successfully
         if found_first_event_to_process:
-            self.deltas_buffer = []
+            self.book_updates = []
             logger.info(f'successfully synced order book')
         # if we found the first events to process, we'll also have updated our
         # local book (as you can see in the above for loop), so we're in sync
@@ -185,7 +183,7 @@ class OrderBookManager:
             raise Exception('failed to update order book: received inconsistent delta')
         bids = delta['b']
         asks = delta['a']
-        # get and clone last state
+        # clone current state
         next_book: dict = copy.deepcopy(self.current_book)
         # update time
         next_book['t'] = delta['E']
@@ -207,14 +205,12 @@ class OrderBookManager:
             # then, if quantity is not 0, set the new one
             if quantity != 0:
                 next_book['asks'].append({'p': price, 'q': quantity})
-        # save new state
+        # update state
+        self.previous_book = self.current_book
         self.current_book = next_book
-        # aggregate current book
-        aggregated_book = self._aggregate_book(next_book)
-        # append current book to history
-        self.book_history.append(aggregated_book)
         # logs
-        logger.debug(f'updated local book to t = {delta['E']} with {delta['u'] - delta['U']} new events from {delta['U']} to {delta['u']} ({len(bids)} new bids, {len(asks)} new asks)')
+        # logger.debug(f'updated local book to t = {delta['E']} with {delta['u'] - delta['U']} new events from {delta['U']} to {delta['u']} ({len(bids)} new bids, {len(asks)} new asks)')
+        logger.debug(f'updated local book to update id {delta['u']} ({len(bids) + len(asks)} deltas)')
     
     def _aggregate_book(self, book: dict):
         """
@@ -253,27 +249,45 @@ class OrderBookManager:
         Returns wether the current delta is consistent with the last received.
         """
         is_consistent = True
-        if self.last_delta is not None:
+        if self.last_book_update is not None:
             first_update_id = delta['U']
-            previous_delta_last_update_id = self.last_delta['u']
+            previous_delta_last_update_id = self.last_book_update['u']
             if first_update_id != previous_delta_last_update_id + 1:
                 logger.info(f'warning: current delta has a diff of {first_update_id - previous_delta_last_update_id + 1} updates from the last ({first_update_id} vs {previous_delta_last_update_id})')
                 is_consistent = False
-        self.last_delta = delta
+        self.last_book_update = delta
         return is_consistent
 
-    def _save_if_needed(self):
-        history = self.get_order_book_history()
-        if len(history) != self.storage_batch_size:
-            return
+    def _should_save_snapshots(self):
+        return len(self.book_snapshots) == self.storage_batch_size
+
+    def _save_snapshots(self):
+        snapshots = self.book_snapshots
         # save current batch
-        self.storage_provider.save(history)
+        self.storage_provider.save(snapshots)
         # update stats
-        self.total_snapshots += len(history)
-        self.total_bids += sum([len(x['bids']) for x in history])
-        self.total_asks += sum([len(x['asks']) for x in history])
+        self.total_snapshots += len(snapshots)
+        self.total_bids += sum([len(x['bids']) for x in snapshots])
+        self.total_asks += sum([len(x['asks']) for x in snapshots])
         # clear memory
-        self.book_history = []
+        self.book_snapshots = []
+
+    def _should_take_snapshot(self):
+        if self.previous_book is None:
+            return False
+        previous_timestamp = self.previous_book['t']
+        current_timestamp = self.current_book['t']
+        if previous_timestamp == 0 or current_timestamp == 0:
+            return False
+        ms_per_step = self.time_resolution_in_seconds * 1000
+        aligned_ts = current_timestamp // ms_per_step * ms_per_step
+        return current_timestamp >= aligned_ts and previous_timestamp < aligned_ts
+
+    def _take_snapshot(self):
+        # aggregate book before appending
+        aggregated_book = self._aggregate_book(self.current_book)
+        # append to list
+        self.book_snapshots.append(aggregated_book)
     
     def _raise_if_invalid_params(self,
                                  symbol: str,
@@ -288,8 +302,6 @@ class OrderBookManager:
             raise Exception(f'invalid parameter \'max_depth\': must be > 0.')
         if time_resolution_in_seconds < 1:
             raise Exception(f'invalid parameter \'time_resolution_in_seconds\': must be > 1.')
-        if time_resolution_in_seconds > 1 and time_resolution_in_seconds % 60 != 0:
-            raise Exception(f'invalid parameter \'time_resolution_in_seconds\': can either be 1 second or be must be a multiple of 60.')
         max_levels_per_side = 1000
         if levels_per_side > max_levels_per_side:
             raise Exception(f'invalid parameter \'levels_per_side\': must be < {max_levels_per_side}')

@@ -12,6 +12,7 @@ def get_order_book_manager() -> OrderBookManager:
     price_resolution = os.getenv(consts.ENV_VAR_PRICE_RESOLUTION)
     time_resolution_in_seconds = os.getenv(consts.ENV_VAR_TIME_RESOLUTION_IN_SECONDS)
     storage_batch_size = os.getenv(consts.ENV_VAR_STORAGE_BATCH_SIZE)
+    print(storage_batch_size)
     # validate env
     raise_if_invalid_env(symbol=symbol,
                          price_resolution=price_resolution,
