@@ -19,3 +19,6 @@ def get_order_book_snapshot(symbol: str, limit: int=1000):
     else:
         logger.warning(f'failed to fetch order book snapshot: {response.json()}')
         return None
+
+def is_none_or_empty(s: str) -> bool:
+    return s is None or s.strip() == ''
