@@ -18,23 +18,23 @@ class OrderBookManager:
     def __init__(self,
                  symbol: str,
                  price_resolution: float = 1,
-                 max_depth = 50,
                  time_resolution_in_seconds: int = 1,
+                 levels_per_side = 50,
                  storage_provider: StorageProvider = None,
                  storage_batch_size: int = 100):
         # params validation
         self._raise_if_invalid_params(
             symbol,
             price_resolution,
-            max_depth,
             time_resolution_in_seconds,
+            levels_per_side,
             storage_provider,
             storage_batch_size)
         # set params
         self.symbol = symbol
         self.price_resolution = price_resolution
-        self.max_depth = max_depth
         self.time_resolution_in_seconds = time_resolution_in_seconds
+        self.levels_per_side = levels_per_side
         self.storage_provider = storage_provider
         self.storage_batch_size = storage_batch_size
         # web socket client
@@ -231,7 +231,7 @@ class OrderBookManager:
         Aggregates a book page (bids or asks).
         """
         best_of_book_price = levels[0]['p']
-        max_abs_price = self.price_resolution * self.max_depth
+        max_abs_price = self.price_resolution * self.levels_per_side
         cutoff = best_of_book_price - max_abs_price if is_bids else best_of_book_price + max_abs_price
         levels = [x for x in levels if x['p'] > cutoff] if is_bids else [x for x in levels if x['p'] < cutoff]
         # build dataframe
@@ -278,21 +278,21 @@ class OrderBookManager:
     def _raise_if_invalid_params(self,
                                  symbol: str,
                                  price_resolution: float,
-                                 max_depth: int,
                                  time_resolution_in_seconds: int,
+                                 levels_per_side: int,
                                  storage_provider: StorageProvider | None,
                                  storage_batch_size: int):
         if price_resolution <= 0:
             raise Exception(f'invalid parameter \'price_resolution\': must be > 0.')
-        if max_depth <= 0:
+        if levels_per_side <= 0:
             raise Exception(f'invalid parameter \'max_depth\': must be > 0.')
-        max_max_depth = 1000
-        if max_depth > max_max_depth:
-            raise Exception(f'invalid parameter \'max_depth\': must be < {max_max_depth}')
         if time_resolution_in_seconds < 1:
             raise Exception(f'invalid parameter \'time_resolution_in_seconds\': must be > 1.')
         if time_resolution_in_seconds > 1 and time_resolution_in_seconds % 60 != 0:
             raise Exception(f'invalid parameter \'time_resolution_in_seconds\': can either be 1 second or be must be a multiple of 60.')
+        max_levels_per_side = 1000
+        if levels_per_side > max_levels_per_side:
+            raise Exception(f'invalid parameter \'levels_per_side\': must be < {max_levels_per_side}')
         if not isinstance(storage_provider, StorageProvider):
             raise Exception(f'invalid parameter \'storage_provider\': must implement the StorageProvider interface.')
         if storage_batch_size <= 0:

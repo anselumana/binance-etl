@@ -5,8 +5,8 @@ OK * read params from env
 OK * better logger
 OK * buffer csv writes
 OK * generic storage interface
+OK * dockerize
 * handle time resolution for aggregation
-* dockerize
 * good README
 * go public
 
