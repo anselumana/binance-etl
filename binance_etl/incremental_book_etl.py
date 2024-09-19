@@ -31,6 +31,7 @@ class IncrementalBookETL(ETLBase):
         self.book_updates: list = []               # order book updates
         self.last_book_update: dict = None         # last order book update
         self.initial_book_snapshot: dict = None    # initial snapshot fetched from the REST API
+        self.local_timestamp = 0                   # arrival timestamp of updates in ms
         # debug stats
         self.total_updates: int = 0
         self.total_bids: int = 0
@@ -57,6 +58,8 @@ class IncrementalBookETL(ETLBase):
         """
         Order book depth update handler.
         """
+        # update message arrival timestamp
+        self.local_timestamp = int(time.time() * 1_000)
         # deresialize order book update
         update = self._deserialize_depth_message(message)
         # ensure current update is consistent with last received
@@ -84,7 +87,7 @@ class IncrementalBookETL(ETLBase):
         update = json.loads(message)
         return {
             'timestamp': update['E'], # ms
-            'local_timestamp': int(time.time() * 1_000), # ms
+            'local_timestamp': self.local_timestamp,
             'bids': update['b'],
             'asks': update['a'],
             'first_update_id': update['U'],
@@ -120,10 +123,11 @@ class IncrementalBookETL(ETLBase):
         self.book_updates = []
     
     def _save_snapshot(self, snapshot: dict):
-        ts = int(time.time() * 1_000) # ms
+        # we do -1 else it would have the same timestamp of the first update
+        snapshot_timestamp = self.local_timestamp - 1
         mapped = {
-            'timestamp': ts, # initial book snap from binance has no time
-            'local_timestamp': ts,
+            'timestamp': snapshot_timestamp,
+            'local_timestamp': snapshot_timestamp,
             'bids': snapshot['bids'],
             'asks': snapshot['asks'],
         }
