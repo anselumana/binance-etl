@@ -1,12 +1,4 @@
 # todo
-OK * add param for max depth (es. 10% from BOB)
-OK * parametrize (w/ validation)
-OK * read params from env
-OK * better logger
-OK * buffer csv writes
-OK * generic storage interface
-OK * dockerize
-* handle time resolution for aggregation
 * good README
 * go public
 

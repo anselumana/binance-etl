@@ -58,7 +58,7 @@ class IncrementalBookETL(ETLBase):
         Order book depth update handler.
         """
         # deresialize order book update
-        update = self._dereialize_depth_message(message)
+        update = self._deserialize_depth_message(message)
         # ensure current update is consistent with last received
         if not self._is_consistent(update):
             raise Exception('Unable to process update: it\'s not consistent with the last one received.')
@@ -68,6 +68,7 @@ class IncrementalBookETL(ETLBase):
             if self.book_synchronizer.is_synced:
                 self.initial_book_snapshot = self.book_synchronizer.initial_book_snapshot
                 self.book_updates = self.book_synchronizer.book_updates
+                self._save_snapshot(self.initial_book_snapshot)
             return
         # record update
         self.book_updates.append(update)
@@ -76,7 +77,7 @@ class IncrementalBookETL(ETLBase):
         if self._should_save_updates():
             self._save_updates()
     
-    def _dereialize_depth_message(self, message: str):
+    def _deserialize_depth_message(self, message: str):
         """
         Deserializes depth update message and maps it to our model.
         """
@@ -118,8 +119,15 @@ class IncrementalBookETL(ETLBase):
         # clear memory
         self.book_updates = []
     
-    def _save_initial_state(self):
-        pass
+    def _save_snapshot(self, snapshot: dict):
+        ts = int(time.time() * 1_000) # ms
+        mapped = {
+            'timestamp': ts, # initial book snap from binance has no time
+            'local_timestamp': ts,
+            'bids': snapshot['bids'],
+            'asks': snapshot['asks'],
+        }
+        self.storage_provider.save_snapshot(mapped)
     
     def _raise_if_invalid_params(self,
                                  symbol: str,
