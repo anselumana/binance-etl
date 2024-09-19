@@ -1,5 +1,6 @@
 import copy
 import json
+from datetime import datetime, timezone
 import pandas as pd
 import websocket
 from logger import get_logger
@@ -86,18 +87,33 @@ class OrderBookManager:
         """
         # deresialize order book update
         update = json.loads(message)
+        # record update
+        self._append_update(update)
         # try to sync the order book until successful
         if not self.initial_sync_successful:
             self.initial_sync_successful = self._sync_book(update)
+            if self.initial_sync_successful:
+                self.initial_book_snapshot = self.current_book # remember initial state (will be saved later)
+                self.book_updates = [] # clear updates
             return
-        # process the update, updating state
-        self._process_update(update)
-        # handle snapshots
-        if self._should_take_snapshot():
-            self._take_snapshot()
-        # save snapshots to storage
-        if self._should_save_snapshots():
-            self._save_snapshots()
+        # update the book state
+        self._update_book(update)
+        # # handle snapshots
+        # if self._should_take_snapshot():
+        #     self._take_snapshot()
+        # # save snapshots to storage
+        # if self._should_save_snapshots():
+        #     self._save_snapshots()
+    
+    def _append_update(self, update: dict):
+        self.book_updates.append({
+            'timestamp': update['E'],
+            'local_timestamp': datetime.now(tz=timezone.utc),
+            'bids': update['b'],
+            'asks': update['a'],
+            'first_update_id': update['U'],
+            'last_update_id': update['u'],
+        })
 
     def _on_error(self, ws, error):
         """
@@ -117,15 +133,14 @@ class OrderBookManager:
         """
         logger.info("websocket connected")
     
-    def _sync_book(self, delta: dict) -> bool:
+    def _sync_book(self) -> bool:
         """
-        Retrieves the initial order book snapshot, finds the first valid delta
+        Retrieves the initial order book snapshot, finds the first valid update
         and applies it along with the subsequent buffered ones.\n
         Once this operation returns successfully, the local book is synced and
         new updates can be applied.
         """
         logger.info(f'trying to sync order book...')
-        self.book_updates.append(delta)
         if self.initial_book_snapshot is None:
             logger.info(f'fetching order book snapshot from the REST API')
             self.initial_book_snapshot = get_order_book_snapshot(self.symbol, limit=1000)
@@ -134,26 +149,24 @@ class OrderBookManager:
                 return False
             logger.info(f'snapshot fetched (last update id: {self.initial_book_snapshot['lastUpdateId']})')
         last_update_id = self.initial_book_snapshot['lastUpdateId']
-        valid_deltas = [x for x in self.book_updates if x['u'] > last_update_id]
-        if len(valid_deltas) == 0:
+        valid_updates = [x for x in self.book_updates if x['u'] > last_update_id]
+        if len(valid_updates) == 0:
             logger.warning(f'failed to sync: all buffered deltas are older than the snapshot')
             return False
         found_first_event_to_process = False
-        for d in valid_deltas:
-            if d['U'] <= last_update_id + 1 and d['u'] >= last_update_id + 1:
+        for update in valid_updates:
+            if update['U'] <= last_update_id + 1 and update['u'] >= last_update_id + 1:
                 # we found the first delta to process, so we can init the book
                 # with the init snapshot and apply the current delta
                 found_first_event_to_process = True
                 self._set_initial_state(initial_snapshot=self.initial_book_snapshot)
-                self._process_update(d)
+                self._update_book(update)
             else:
                 # if we found the first event to process, we go on and apply 
                 # all subsequent buffered deltas
                 if found_first_event_to_process:
-                    self._process_update(d)
-        # clear memory if we've synced successfully
+                    self._update_book(update)
         if found_first_event_to_process:
-            self.book_updates = []
             logger.info(f'successfully synced order book')
         # if we found the first events to process, we'll also have updated our
         # local book (as you can see in the above for loop), so we're in sync
@@ -171,7 +184,7 @@ class OrderBookManager:
         }
         logger.info(f'initialized local order book with snapshot.last_update_id = {initial_snapshot['lastUpdateId']}')
 
-    def _process_update(self, delta: dict):
+    def _update_book(self, update: dict):
         """
         Updates the order book with the given delta.
         This method should only be called once the initial state has been set.
@@ -179,14 +192,14 @@ class OrderBookManager:
         """
         if self.current_book is None:
             raise Exception('cannot process order book updates if current state is None.')
-        if not self._is_consistent(delta):
+        if not self._is_consistent(update):
             raise Exception('failed to update order book: received inconsistent delta')
-        bids = delta['b']
-        asks = delta['a']
+        bids = update['b']
+        asks = update['a']
         # clone current state
         next_book: dict = copy.deepcopy(self.current_book)
         # update time
-        next_book['t'] = delta['E']
+        next_book['t'] = update['E']
         # update bids
         for bid in bids:
             price = float(bid[0])
@@ -210,39 +223,45 @@ class OrderBookManager:
         self.current_book = next_book
         # logs
         # logger.debug(f'updated local book to t = {delta['E']} with {delta['u'] - delta['U']} new events from {delta['U']} to {delta['u']} ({len(bids)} new bids, {len(asks)} new asks)')
-        logger.debug(f'updated local book to update id {delta['u']} ({len(bids) + len(asks)} deltas)')
+        logger.debug(f'updated local book to update id {update['u']} ({len(bids) + len(asks)} deltas)')
     
-    def _aggregate_book(self, book: dict):
+    def _aggregate_book(self, book: dict) -> pd.DataFrame:
         """
         Returns the order book snapshot aggregated by price levels.\n
-        Aggregation in based on self.price_range_for_aggregation.
+        Aggregation in based on self.price_resolution.
         """
-        aggregated = copy.deepcopy(book)
-        aggregated['bids'] = self._aggregate_page(book['bids'], is_bids=True)
-        aggregated['asks'] = self._aggregate_page(book['asks'], is_bids=False)
-        return aggregated
-
-    def _aggregate_page(self, levels: list, is_bids: bool):
-        """
-        Aggregates a book page (bids or asks).
-        """
-        best_of_book_price = levels[0]['p']
-        max_abs_price = self.price_resolution * self.levels_per_side
-        cutoff = best_of_book_price - max_abs_price if is_bids else best_of_book_price + max_abs_price
-        levels = [x for x in levels if x['p'] > cutoff] if is_bids else [x for x in levels if x['p'] < cutoff]
-        # build dataframe
+        # determine min and max price of aggregated book
+        best_bid = book['bids'][0]['p']
+        best_ask = book['asks'][0]['p']
+        mid_price = best_bid + best_ask / 2
+        trunc_mid_price = mid_price // self.price_resolution * self.price_resolution
+        min_price = trunc_mid_price - self.price_resolution * self.levels_per_side
+        max_price = trunc_mid_price + self.price_resolution * self.levels_per_side
+        # get all ticks in the book
+        levels = book['bids'] + book['asks']
+        # discard all ticks outside of the min/max price range
+        levels = [x for x in levels if x >= min_price and x < max_price]
+        # group ticks by price range, summing quantities
         df = pd.DataFrame(levels)
-        # create culumn with truncated prices based on price range
         df['price_range'] = (df['p'] // self.price_resolution) * self.price_resolution
-        # group by price range
-        aggregated = df.groupby('price_range').agg({'q': 'sum'}).reset_index()
-        # rename back to 'p'
-        aggregated.rename(columns={'price_range': 'p'}, inplace=True)
-        # sort asc/desc based on asks/bids
-        aggregated = aggregated.sort_values(by='p', ascending=not is_bids)
-        # return back to dict
-        return aggregated.to_dict(orient='records')
-
+        df = df.groupby('price_range').agg({'q': 'sum'}).reset_index()
+        df = df.rename(columns={'price_range': 'p'})
+        df = df.sort_values(by='p')
+        # fill price gaps setting 0 as quantity
+        full_price_range = pd.DataFrame({ 'p': range(min_price, max_price, self.price_resolution) })
+        df = pd.merge(full_price_range, df, on='p', how='left').fillna(0)
+        return df
+    
+    def _build_snapshot(self, book: dict):
+        aggregated_book_df = self._aggregate_book(book)
+        ############
+        # order book by range or by tick???????
+        ############
+        return {
+            'timestamp': book['t'],
+            **{f'bid_{i}': 0 for i in range(self.levels_per_side)},
+            **{f'ask_{i}': 0 for i in range(self.levels_per_side)}
+        }
     
     def _is_consistent(self, delta: dict):
         """
@@ -264,7 +283,7 @@ class OrderBookManager:
     def _save_snapshots(self):
         snapshots = self.book_snapshots
         # save current batch
-        self.storage_provider.save(snapshots)
+        self.storage_provider.save_updates(snapshots)
         # update stats
         self.total_snapshots += len(snapshots)
         self.total_bids += sum([len(x['bids']) for x in snapshots])
@@ -285,7 +304,7 @@ class OrderBookManager:
 
     def _take_snapshot(self):
         # aggregate book before appending
-        aggregated_book = self._aggregate_book(self.current_book)
+        aggregated_book = self._build_snapshot(self.current_book)
         # append to list
         self.book_snapshots.append(aggregated_book)
     

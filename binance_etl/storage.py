@@ -14,7 +14,7 @@ class StorageProvider:
     def __init__(self):
         pass
 
-    def save(self, snapshots: list):
+    def save_updates(self, updates: list):
         pass
 
 class CsvStorage(StorageProvider):
@@ -26,39 +26,41 @@ class CsvStorage(StorageProvider):
         self.is_first_save = True
         self.total_chunks_saved = 0
 
-    def save(self, snapshots: list):
+    def save_updates(self, updates: list):
         """
-        Saves book snapshots to csv in append mode.
+        Saves book incremental updates to csv in append mode.
         """
-        logger.info(f'saving order book...')
+        logger.info(f'saving order book updates...')
         # build dataframes
         bids = pd.DataFrame({
-            'time': flatten([[datetime.fromtimestamp(x['t'] // 1000, tz=timezone.utc) for y in x['bids']] for x in snapshots]),
-            'price': flatten([[y['p'] for y in x['bids']] for x in snapshots]),
-            'quantity': flatten([[y['q'] for y in x['bids']] for x in snapshots]),
+            'timestamp': flatten([[x['timestamp'] for y in x['bids']] for x in updates]),
+            'local_timestamp': flatten([[x['local_timestamp'] for y in x['bids']] for x in updates]),
+            'side': ['bid' for _ in range(sum([len(x['bids']) for x in updates]))],
+            'price': flatten([[y[0] for y in x['bids']] for x in updates]),
+            'quantity': flatten([[y[1] for y in x['bids']] for x in updates]),
         })
         asks = pd.DataFrame({
-            'time': flatten([[datetime.fromtimestamp(x['t'] // 1000, tz=timezone.utc) for y in x['asks']] for x in snapshots]),
-            'price': flatten([[y['p'] for y in x['asks']] for x in snapshots]),
-            'quantity': flatten([[y['q'] for y in x['asks']] for x in snapshots]),
+            'timestamp': flatten([[x['timestamp'] for y in x['asks']] for x in updates]),
+            'local_timestamp': flatten([[x['local_timestamp'] for y in x['asks']] for x in updates]),
+            'side': ['ask' for _ in range(sum([len(x['asks']) for x in updates]))],
+            'price': flatten([[y[0] for y in x['asks']] for x in updates]),
+            'quantity': flatten([[y[1] for y in x['asks']] for x in updates]),
         })
+        full_df = pd.concat([bids, asks]).sort_values(by='timestamp')
         # create path if it doesn't exist
         if not os.path.exists(self.directory):
             os.makedirs(self.directory)
-        bids_csv = os.path.join(self.directory, 'bids.csv')
-        asks_csv = os.path.join(self.directory, 'asks.csv')
+        output_path = os.path.join(self.directory, 'incremental_book_updates.csv')
         # save to csv
         if self.is_first_save:
             # write mode if its the first write (override any existing files)
-            bids.to_csv(bids_csv, index=False)
-            asks.to_csv(asks_csv, index=False)
+            full_df.to_csv(output_path, index=False)
             self.is_first_save = False
         else:
             # append mode without header for subsequent writes
-            bids.to_csv(bids_csv, index=False, mode='a', header=False)
-            asks.to_csv(asks_csv, index=False, mode='a', header=False)
+            full_df.to_csv(output_path, index=False, mode='a', header=False)
         # update stats
         self.total_chunks_saved += 1
         # log
-        logger.info(f'chunk #{self.total_chunks_saved}: saved {len(snapshots)} book snapshots to {bids_csv} and {asks_csv}')
+        logger.info(f'chunk #{self.total_chunks_saved}: saved {len(updates)} updates to {output_path}')
     
