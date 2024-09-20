@@ -81,5 +81,5 @@ We support the following export destinations:
 | Google BigQuery | ❌ |
 
 
-[binance-developer-docs-how-to-manage-local-book]: https://developers.binance.com/docs/derivatives/usds-margined-futures/websocket-market-streams/How-to-manage-a-local-order-book-correctly
+[binance-developer-docs-how-to-manage-local-book]: https://binance-docs.github.io/apidocs/spot/en/#how-to-manage-a-local-order-book-correctly
 [binance-spot-depth-updates]: https://binance-docs.github.io/apidocs/spot/en/#diff-depth-stream
