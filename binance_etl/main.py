@@ -17,7 +17,7 @@ def handle_shutdown_signal(signal_number, frame, etls: List[ETLBase]):
     for etl in etls:
         etl.stop()
     logger.info('exiting binance-etl')
-    sys.exit(0)  # Exit gracefully
+    # sys.exit(0)  # Exit gracefully
 
 def register_signal_handlers(etls: List[ETLBase]):
     signal.signal(signal.SIGINT, lambda signal_number, frame: handle_shutdown_signal(signal_number, frame, etls))   # Handle Ctrl+C

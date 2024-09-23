@@ -1,8 +1,9 @@
 import json
 import time
+from typing import Any
 import pandas as pd
+from binance.websocket.spot.websocket_stream import SpotWebsocketStreamClient
 from binance_etl.library.model import ETLBase
-from binance_etl.library.binance_websocket import BinanceWebSocket
 from binance_etl.library.storage import StorageProvider
 from binance_etl.library.logger import get_logger
 from binance_etl.library.utils import get_order_book_snapshot, flatten
@@ -21,7 +22,7 @@ class SpotDepthUpdatesETL(ETLBase):
         self.symbol = symbol
         self.storage = storage
         # binance websocket manager
-        self.binance_websocket = BinanceWebSocket(on_message=self._process_message)
+        self.binance_ws_client = SpotWebsocketStreamClient(on_message=self._process_message)
         # book synchronizer
         self.book_synchronizer = OrderBookSynchronizer(symbol)
         # state variables
@@ -38,7 +39,7 @@ class SpotDepthUpdatesETL(ETLBase):
         """
         logger.info(f'starting depth updates ETL for binance:{self.symbol} spot pair')
         # connect to depth stream with our message handler
-        self.binance_websocket.connect_to_depth_stream(self.symbol)
+        self.binance_ws_client.diff_book_depth(symbol=self.symbol)
     
     def stop(self):
         """
@@ -46,10 +47,10 @@ class SpotDepthUpdatesETL(ETLBase):
         """
         logger.info(f'stopping depth updates ETL for binance:{self.symbol} spot pair')
         # close websocket connection
-        self.binance_websocket.close_connection()
+        self.binance_ws_client.stop()
         self._log_debug_stats()
 
-    def _process_message(self, message: str):
+    def _process_message(self, _: Any, message: str):
         """
         Order book depth update handler.
         """
@@ -57,6 +58,8 @@ class SpotDepthUpdatesETL(ETLBase):
         self.local_timestamp = int(time.time() * 1_000)
         # deresialize order book update
         update = self._deserialize_depth_message(message)
+        if update is None:
+            return
         logger.debug(f'processing update {update['last_update_id']} ({len(update['bids']) + len(update['asks'])} deltas)')
         # ensure current update is consistent with last received
         if not self._is_consistent(update):
@@ -80,15 +83,18 @@ class SpotDepthUpdatesETL(ETLBase):
         """
         Deserializes depth update message and maps it to our model.
         """
-        update = json.loads(message)
-        return {
-            'timestamp': update['E'], # ms
-            'local_timestamp': self.local_timestamp,
-            'bids': update['b'],
-            'asks': update['a'],
-            'first_update_id': update['U'],
-            'last_update_id': update['u'],
-        }
+        try:
+            update = json.loads(message)
+            return {
+                'timestamp': update['E'], # ms
+                'local_timestamp': self.local_timestamp,
+                'bids': update['b'],
+                'asks': update['a'],
+                'first_update_id': update['U'],
+                'last_update_id': update['u'],
+            }
+        except Exception as ex:
+            logger.warning(f'Unable to deserialize depth update message: {ex}\nMessage body:\n{message}')
     
     def _is_consistent(self, update: dict):
         """
