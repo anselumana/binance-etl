@@ -1,6 +1,6 @@
 import os
 import pandas as pd
-from binance_etl.logger import get_logger
+from binance_etl.library.logger import get_logger
 
 
 logger = get_logger(__name__)

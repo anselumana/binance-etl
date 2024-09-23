@@ -1,7 +1,7 @@
 import json
 import requests
-from binance_etl.logger import get_logger
-from binance_etl.consts import BINANCE_REST_URL
+from binance_etl.library.logger import get_logger
+from binance_etl.library.consts import BINANCE_REST_URL
 
 
 logger = get_logger(__name__)

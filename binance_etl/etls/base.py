@@ -1,13 +1,13 @@
 from typing import List
-from binance_etl.model import ETLBase
-from binance_etl.spot_depth_updates_etl import SpotDepthUpdatesETL
-from binance_etl.factory import get_storage_provider
-from binance_etl.logger import get_logger
+from binance_etl.library.model import ETLBase
+from binance_etl.etls.spot_depth_updates_etl import SpotDepthUpdatesETL
+from binance_etl.library.factory import get_storage_provider
+from binance_etl.library.logger import get_logger
 
 
 logger = get_logger(__name__)
 
-class SymbolETL():
+class SymbolETL(ETLBase):
     """
     Manages trading events ETL for a single symbol.
     """

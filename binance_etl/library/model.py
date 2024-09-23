@@ -1,4 +1,3 @@
-
 class ETLBase:
     def start(self):
         pass
