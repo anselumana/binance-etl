@@ -1,9 +1,9 @@
 import os
-import consts
-from model import ETLBase
-from utils import is_none_or_empty
-from storage import StorageProvider, CsvStorage
-from incremental_book_etl import IncrementalBookETL
+import binance_etl.consts as consts
+from binance_etl.model import ETLBase
+from binance_etl.spot_depth_updates_etl import SpotDepthUpdatesETL
+from binance_etl.storage import StorageProvider, CsvStorage
+from binance_etl.utils import is_none_or_empty, load_config
 
 
 def get_incremental_book_etl() -> ETLBase:
@@ -15,13 +15,21 @@ def get_incremental_book_etl() -> ETLBase:
                          storage_batch_size=storage_batch_size)
     # instanciate storage provider
     storage = get_storage_provider()
-    return IncrementalBookETL(symbol=symbol,
-                            storage_provider=storage,
+    return SpotDepthUpdatesETL(symbol=symbol,
+                            storage=storage,
                             storage_batch_size=int(storage_batch_size))
 
-def get_storage_provider() -> StorageProvider:
-    csv_storage_directory = os.getenv(consts.ENV_VAR_CSV_STORAGE_DIRECTORY)
-    return CsvStorage(directory=csv_storage_directory or '.')
+def get_storage_provider(symbol_id: str) -> StorageProvider:
+    config = load_config()
+    storage_config = config['storage']
+    if bool(storage_config['csv_storage_enabled']):
+        batch_size = storage_config['csv_batch_size']
+        base_path = storage_config['csv_base_path']
+        return CsvStorage(symbol_id, batch_size, base_path)
+    if bool(storage_config['bigquery_storage_enabled']):
+        # todo: support bigquery
+        pass
+    raise Exception(f'could not find any enabled storage providers in config')
 
 
 def raise_if_invalid_env(symbol: str | None,

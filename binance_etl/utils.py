@@ -1,6 +1,7 @@
+import json
 import requests
-from logger import get_logger
-from consts import BINANCE_REST_URL
+from binance_etl.logger import get_logger
+from binance_etl.consts import BINANCE_REST_URL
 
 
 logger = get_logger(__name__)
@@ -22,3 +23,7 @@ def get_order_book_snapshot(symbol: str, limit: int=1000):
 
 def is_none_or_empty(s: str) -> bool:
     return s is None or s.strip() == ''
+
+def load_config(path: str = None) -> dict:
+    with open(path or './config.json') as config:
+        return json.loads(config.read())

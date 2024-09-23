@@ -3,20 +3,29 @@
         {
             "name": "btcusdt",
             "markets": [
-                "spot",
-                "usdm_futures",
-                "coinm_futures"
+                "spot"
             ],
             "events": [
                 "depth_updates",
                 "trades"
             ]
+        },
+        {
+            "name": "ethusdt",
+            "markets": [
+                "spot"
+            ],
+            "events": [
+                "depth_updates"
+            ]
         }
     ],
-    "save_to_csv": true,
-    "csv_base_path": "",
-    "csv_batch_size": 100,
-    "save_to_bigquery": false,
-    "bigquery_api_key": "",
-    "bigquery_batch_size": 1000
+    "storage": {
+        "csv_storage_enabled": true,
+        "csv_base_path": "./output",
+        "csv_batch_size": 1000,
+        "bigquery_storage_enabled": false,
+        "bigquery_api_key": "",
+        "bigquery_batch_size": 1000
+    }
 }

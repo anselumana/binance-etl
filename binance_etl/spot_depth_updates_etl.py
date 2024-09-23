@@ -1,39 +1,34 @@
 import json
 import time
-from binance_websocket import BinanceWebSocket
-from logger import get_logger
-from utils import get_order_book_snapshot
-from storage import StorageProvider
-from model import ETLBase
+import pandas as pd
+from binance_etl.model import ETLBase
+from binance_etl.binance_websocket import BinanceWebSocket
+from binance_etl.storage import StorageProvider
+from binance_etl.logger import get_logger
+from binance_etl.utils import get_order_book_snapshot, flatten
 
 
 logger = get_logger(__name__)
 
-class IncrementalBookETL(ETLBase):
+class SpotDepthUpdatesETL(ETLBase):
     """
     Manages the recording of incremental order book L2 updates.
     """
     def __init__(self,
                  symbol: str,
-                 storage_provider: StorageProvider,
-                 storage_batch_size: int = 100):
-        # params validation
-        self._raise_if_invalid_params(symbol, storage_provider, storage_batch_size)
+                 storage: StorageProvider):
         # set params
         self.symbol = symbol
-        self.storage_provider = storage_provider
-        self.storage_batch_size = storage_batch_size
+        self.storage = storage
         # binance websocket manager
         self.binance_websocket = BinanceWebSocket(on_message=self._process_message)
         # book synchronizer
         self.book_synchronizer = OrderBookSynchronizer(symbol)
         # state variables
-        self.book_updates: list = []               # order book updates
-        self.last_book_update: dict = None         # last order book update
-        self.initial_book_snapshot: dict = None    # initial snapshot fetched from the REST API
-        self.local_timestamp = 0                   # arrival timestamp of updates in ms
+        self.local_timestamp = 0             # arrival timestamp of websocket messages in ms
+        self.last_book_update: dict = None   # last order book update
         # debug stats
-        self.total_updates: int = 0
+        self.total_messages: int = 0
         self.total_bids: int = 0
         self.total_asks: int = 0
     
@@ -41,7 +36,7 @@ class IncrementalBookETL(ETLBase):
         """
         Starts order book recording.
         """
-        logger.info(f'starting order book recording for binance:{self.symbol}')
+        logger.info(f'starting depth updates ETL for binance:{self.symbol} spot pair')
         # connect to depth stream with our message handler
         self.binance_websocket.connect_to_depth_stream(self.symbol)
     
@@ -49,7 +44,7 @@ class IncrementalBookETL(ETLBase):
         """
         Gracefully stops order book recording.
         """
-        logger.info(f'stopping order book recording for binance:{self.symbol}')
+        logger.info(f'stopping depth updates ETL for binance:{self.symbol} spot pair')
         # close websocket connection
         self.binance_websocket.close_connection()
         self._log_debug_stats()
@@ -62,23 +57,24 @@ class IncrementalBookETL(ETLBase):
         self.local_timestamp = int(time.time() * 1_000)
         # deresialize order book update
         update = self._deserialize_depth_message(message)
+        logger.debug(f'processing update {update['last_update_id']} ({len(update['bids']) + len(update['asks'])} deltas)')
         # ensure current update is consistent with last received
         if not self._is_consistent(update):
             raise Exception('Unable to process update: it\'s not consistent with the last one received.')
         # try to sync the order book until successful
         if not self.book_synchronizer.is_synced:
             self.book_synchronizer.try_to_sync_book(update)
-            if self.book_synchronizer.is_synced:
-                self.initial_book_snapshot = self.book_synchronizer.initial_book_snapshot
-                self.book_updates = self.book_synchronizer.book_updates
-                self._save_snapshot(self.initial_book_snapshot)
-            return
-        # record update
-        self.book_updates.append(update)
-        logger.debug(f'processed update {update['last_update_id']} ({len(update['bids']) + len(update['asks'])} deltas)')
+            if not self.book_synchronizer.is_synced:
+                return
+            else:
+                # save updates
+                self._save_initial_snapshot(self.book_synchronizer.initial_book_snapshot)
+                for _update in self.book_synchronizer.book_updates:
+                    self._save_update(_update)
         # save updates to storage
-        if self._should_save_updates():
-            self._save_updates()
+        self._save_update(update)
+        # update debug stats
+        self._update_debug_stats(update)
     
     def _deserialize_depth_message(self, message: str):
         """
@@ -108,21 +104,29 @@ class IncrementalBookETL(ETLBase):
         self.last_book_update = update
         return is_consistent
 
-    def _should_save_updates(self):
-        return len(self.book_updates) == self.storage_batch_size
-
-    def _save_updates(self):
-        updates = self.book_updates
-        # save current batch
-        self.storage_provider.save_updates(updates)
-        # update stats
-        self.total_updates += len(updates)
-        self.total_bids += sum([len(x['bids']) for x in updates])
-        self.total_asks += sum([len(x['asks']) for x in updates])
-        # clear memory
-        self.book_updates = []
+    def _save_update(self, update, is_initial_snapshot = False):
+        bids_range = range(len(update['bids']))
+        bids = pd.DataFrame({
+            'timestamp': [update['timestamp'] for _ in bids_range],
+            'local_timestamp': [update['local_timestamp'] for _ in bids_range],
+            'side': ['bid' for _ in bids_range],
+            'price': [x[0] for x in update['bids']],
+            'quantity': [x[1] for x in update['bids']],
+            'is_snapshot': [is_initial_snapshot for _ in bids_range],
+        })
+        asks_range = range(len(update['asks']))
+        asks = pd.DataFrame({
+            'timestamp': [update['timestamp'] for _ in asks_range],
+            'local_timestamp': [update['local_timestamp'] for _ in asks_range],
+            'side': ['ask' for _ in asks_range],
+            'price': [x[0] for x in update['asks']],
+            'quantity': [x[1] for x in update['asks']],
+            'is_snapshot': [is_initial_snapshot for _ in asks_range],
+        })
+        df = pd.concat([bids, asks]).sort_values(by=['timestamp', 'side'])
+        self.storage.add_depth_updates(df)
     
-    def _save_snapshot(self, snapshot: dict):
+    def _save_initial_snapshot(self, snapshot: dict):
         # we do -1 else it would have the same timestamp of the first update
         snapshot_timestamp = self.local_timestamp - 1
         mapped = {
@@ -131,25 +135,19 @@ class IncrementalBookETL(ETLBase):
             'bids': snapshot['bids'],
             'asks': snapshot['asks'],
         }
-        self.storage_provider.save_snapshot(mapped)
+        self._save_update(mapped, is_initial_snapshot=True)
     
-    def _raise_if_invalid_params(self,
-                                 symbol: str,
-                                 storage_provider: StorageProvider | None,
-                                 storage_batch_size: int):
-        if not isinstance(storage_provider, StorageProvider):
-            raise Exception(f'invalid parameter \'storage_provider\': must implement the StorageProvider interface.')
-        if storage_batch_size <= 0:
-            raise Exception(f'invalid parameter \'storage_batch_size\': must be > 0.')
-        if storage_batch_size > 1_000_000:
-            raise Exception(f'invalid parameter \'storage_batch_size\': must be <= 1\'000\'000.')
-    
+    def _update_debug_stats(self, update: dict):
+        self.total_messages += 1
+        self.total_bids += len(update['bids'])
+        self.total_asks += len(update['asks'])
+
     def _log_debug_stats(self):
         logger.debug('')
-        logger.debug(f'total book updates processed:           {self.total_updates}')
-        logger.debug(f'total bids processed:                   {self.total_bids}')
-        logger.debug(f'total asks processed:                   {self.total_asks}')
-        logger.debug(f'average bids+asks per update: {(self.total_bids + self.total_asks) / (self.total_updates or 1):.1f}')
+        logger.debug(f'total depth update messages:     {self.total_messages}')
+        logger.debug(f'total bids processed:            {self.total_bids}')
+        logger.debug(f'total asks processed:            {self.total_asks}')
+        logger.debug(f'average bids+asks per message:   {(self.total_bids + self.total_asks) / (self.total_messages or 1):.1f}')
 
 
 

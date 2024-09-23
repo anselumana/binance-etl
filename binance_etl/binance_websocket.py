@@ -1,6 +1,6 @@
 import websocket
-from logger import get_logger
-from consts import BINANCE_WEBSOCKET_URL
+from binance_etl.consts import BINANCE_WEBSOCKET_URL
+from binance_etl.logger import get_logger
 
 
 logger = get_logger(__name__)
