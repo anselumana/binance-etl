@@ -35,12 +35,14 @@ python3 -m binance_etl.main
 
 ## Data
 
-We support the collection and storage of the following **trading events**.
+The program supports the collection and storage of the following **trading events**.
 
 | Event type | Spot | Futures |
 |-|-|-|
 | [Depth updates](#depth-updates) | ✅ | ❌ |
 | [Trades](#trades) | ✅ | ❌ |
+
+If you're looking for some **ready to use datasets**, I've exported some sample data to [this kaggle dataset][kaggle-binance-trading-events-dataset], and you can check some started code in [this kaggle notebook][kaggle-binance-trading-events-notebook].
 
 ### Depth updates
 Depth updates events are **order book updates** streamed from [binance websockets **depth** stream][binance-docs-websocket-depth].
@@ -76,7 +78,7 @@ We store depth updates in the following format:
 | `quantity` | Quantity of the trade |
 
 ## Export
-We support the following export destinations:
+The program supports the following export destinations:
 | Export type | Supported |
 |-|-|
 | Local CSV files | ✅ |
@@ -86,3 +88,5 @@ We support the following export destinations:
 
 [binance-docs-websocket-depth]: https://developers.binance.com/docs/binance-spot-api-docs/web-socket-streams#diff-depth-stream
 [binance-docs-websocket-trade]: https://developers.binance.com/docs/binance-spot-api-docs/web-socket-streams#trade-streams
+[kaggle-binance-trading-events-dataset]: https://www.kaggle.com/datasets/circeukan/binance-trading-events
+[kaggle-binance-trading-events-notebook]: [kaggle-binance-trading-events-dataset]
