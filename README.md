@@ -16,45 +16,37 @@
 
 ## Getting started
 
-Install dependencies.
+### Install dependencies
 
 ```sh
 pip install -r requirements.txt
 ```
 
-Configure the script by creating a `.env` file (see `.env.template` as reference).
+### Configure
+Configure the ETL by editing `config.json`.
 
-```python
-# example configuration
+Here you can define the **symbols** you want to track, the types of **events to record** and the desired **storage** destination.
 
-# binance symbol to track
-SYMBOL='solusdt'
-# batch size for each save
-STORAGE_BATCH_SIZE=100
-# csv storage directory
-CSV_STORAGE_DIRECTORY='./output/'
-```
-
-Start the ETL:
+### Start
 
 ```sh
-python3 ./binance_etl/main.py
+python3 -m binance_etl.main
 ```
 
 ## Data
 
-We support the collection and storage of the following events.
+We support the collection and storage of the following **trading events**.
 
 | Event type | Spot | Futures |
 |-|-|-|
-| [Order book updates](#order-book-updates) | ✅ | ❌ |
-| [Trades](#trades) | ❌ | ❌ |
+| [Depth updates](#depth-updates) | ✅ | ❌ |
+| [Trades](#trades) | ✅ | ❌ |
 
-### Order book updates
-Order books updates are fetched in real-time from **binance websockets** and are as frequent as the underlying [data source][binance-spot-depth-updates].
+### Depth updates
+Depth updates events are **order book updates** streamed from [binance websockets **depth** stream][binance-docs-websocket-depth].
 <br>
 
-We store book updates in the following format:
+We store depth updates in the following format:
 <br>
 
 | Column | Description |
@@ -68,18 +60,29 @@ We store book updates in the following format:
 
 <br>
 
-Check [binance developer docs][binance-developer-docs-how-to-manage-local-book] to understand how the sync is managed.
-
 ### Trades
-⌛ *Coming soon...*
+Trade events are **market trades** streamed from [binance websockets **trade** stream][binance-docs-websocket-trade].
+
+We store depth updates in the following format:
+<br>
+
+| Column | Description |
+|-|-|
+| `timestamp` | Exchange timestamp in milliseconds since epoch |
+| `local_timestamp` | Message arrival timestamp in milliseconds since epoch |
+| `id` | Unique identifier of the trade |
+| `side` | Can be `buy` or `sell`, and reflects who is the liquidity **taker** |
+| `price` | Execution price of the trade |
+| `quantity` | Quantity of the trade |
 
 ## Export
 We support the following export destinations:
 | Export type | Supported |
 |-|-|
-| CSV files | ✅ |
-| Google BigQuery | ❌ |
+| Local CSV files | ✅ |
+| Google BigQuery | ❌ *(coming soon)* |
 
 
-[binance-developer-docs-how-to-manage-local-book]: https://binance-docs.github.io/apidocs/spot/en/#how-to-manage-a-local-order-book-correctly
-[binance-spot-depth-updates]: https://binance-docs.github.io/apidocs/spot/en/#diff-depth-stream
+
+[binance-docs-websocket-depth]: https://developers.binance.com/docs/binance-spot-api-docs/web-socket-streams#diff-depth-stream
+[binance-docs-websocket-trade]: https://developers.binance.com/docs/binance-spot-api-docs/web-socket-streams#trade-streams
