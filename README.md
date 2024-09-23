@@ -89,4 +89,4 @@ The program supports the following export destinations:
 [binance-docs-websocket-depth]: https://developers.binance.com/docs/binance-spot-api-docs/web-socket-streams#diff-depth-stream
 [binance-docs-websocket-trade]: https://developers.binance.com/docs/binance-spot-api-docs/web-socket-streams#trade-streams
 [kaggle-binance-trading-events-dataset]: https://www.kaggle.com/datasets/circeukan/binance-trading-events
-[kaggle-binance-trading-events-notebook]: [kaggle-binance-trading-events-dataset]
+[kaggle-binance-trading-events-notebook]: https://www.kaggle.com/code/circeukan/binance-trading-events-eda
