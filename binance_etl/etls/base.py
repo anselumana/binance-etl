@@ -3,6 +3,7 @@ from binance_etl.library.model import ETLBase
 from binance_etl.etls.spot_depth_updates_etl import SpotDepthUpdatesETL
 from binance_etl.library.factory import get_storage_provider
 from binance_etl.library.logger import get_logger
+from binance_etl.library.utils import logger_name_with_symbol
 
 
 logger = get_logger(__name__)
@@ -15,18 +16,22 @@ class SymbolETL(ETLBase):
                  symbol: str,
                  markets: List[str],
                  events: List[str]):
+        # params
         self.symbol = symbol
         self.markets = markets
         self.events = events
+        # logger
+        self.logger = get_logger(logger_name_with_symbol(__name__, self.symbol))
+        # build ETLs
         self.etls = self._get_etls()
     
     def start(self):
-        logger.info(f'starting ETLs for binance:{self.symbol}')
+        self.logger.info(f'starting ETLs for binance:{self.symbol}')
         for etl in self.etls:
             etl.start()
     
     def stop(self):
-        logger.info(f'stopping ETLs for binance:{self.symbol}')
+        self.logger.info(f'stopping ETLs for binance:{self.symbol}')
         for etl in self.etls:
             etl.stop()
 

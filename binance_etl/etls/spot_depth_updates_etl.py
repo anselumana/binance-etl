@@ -6,10 +6,8 @@ from binance.websocket.spot.websocket_stream import SpotWebsocketStreamClient
 from binance_etl.library.model import ETLBase
 from binance_etl.library.storage import StorageProvider
 from binance_etl.library.logger import get_logger
-from binance_etl.library.utils import get_order_book_snapshot
+from binance_etl.library.utils import get_order_book_snapshot, logger_name_with_symbol
 
-
-logger = get_logger(__name__)
 
 class SpotDepthUpdatesETL(ETLBase):
     """
@@ -21,6 +19,8 @@ class SpotDepthUpdatesETL(ETLBase):
         # set params
         self.symbol = symbol
         self.storage = storage
+        # logger
+        self.logger = get_logger(logger_name_with_symbol(__name__, self.symbol))
         # binance websocket manager
         self.binance_ws_client = SpotWebsocketStreamClient(on_message=self._process_message)
         # book synchronizer
@@ -37,7 +37,7 @@ class SpotDepthUpdatesETL(ETLBase):
         """
         Starts order book recording.
         """
-        logger.info(f'starting depth updates ETL for binance:{self.symbol} spot pair')
+        self.logger.info(f'starting depth updates ETL for binance:{self.symbol} spot pair')
         # connect to depth stream with our message handler
         self.binance_ws_client.diff_book_depth(symbol=self.symbol)
     
@@ -45,7 +45,7 @@ class SpotDepthUpdatesETL(ETLBase):
         """
         Gracefully stops order book recording.
         """
-        logger.info(f'stopping depth updates ETL for binance:{self.symbol} spot pair')
+        self.logger.info(f'stopping depth updates ETL for binance:{self.symbol} spot pair')
         # close websocket connection
         self.binance_ws_client.stop()
         self._log_debug_stats()
@@ -60,7 +60,7 @@ class SpotDepthUpdatesETL(ETLBase):
         update = self._deserialize_depth_message(message)
         if update is None:
             return
-        logger.debug(f'processing update {update['last_update_id']} ({len(update['bids']) + len(update['asks'])} deltas)')
+        self.logger.debug(f'processing update {update['last_update_id']} ({len(update['bids']) + len(update['asks'])} deltas)')
         # ensure current update is consistent with last received
         if not self._is_consistent(update):
             raise Exception('Unable to process update: it\'s not consistent with the last one received.')
@@ -94,7 +94,7 @@ class SpotDepthUpdatesETL(ETLBase):
                 'last_update_id': update['u'],
             }
         except Exception as ex:
-            logger.warning(f'Unable to deserialize depth update message: {ex}\nMessage body:\n{message}')
+            self.logger.warning(f'Unable to deserialize depth update message: {ex}\nMessage body:\n{message}')
     
     def _is_consistent(self, update: dict):
         """
@@ -105,7 +105,7 @@ class SpotDepthUpdatesETL(ETLBase):
             first_update_id = update['first_update_id']
             previous_delta_last_update_id = self.last_book_update['last_update_id']
             if first_update_id != previous_delta_last_update_id + 1:
-                logger.warning(f'inconsistent update: current update has a diff of {first_update_id - previous_delta_last_update_id + 1} updates from the last ({first_update_id} vs {previous_delta_last_update_id})')
+                self.logger.warning(f'inconsistent update: current update has a diff of {first_update_id - previous_delta_last_update_id + 1} updates from the last ({first_update_id} vs {previous_delta_last_update_id})')
                 is_consistent = False
         self.last_book_update = update
         return is_consistent
@@ -149,11 +149,11 @@ class SpotDepthUpdatesETL(ETLBase):
         self.total_asks += len(update['asks'])
 
     def _log_debug_stats(self):
-        logger.debug('')
-        logger.debug(f'total depth update messages:     {self.total_messages}')
-        logger.debug(f'total bids processed:            {self.total_bids}')
-        logger.debug(f'total asks processed:            {self.total_asks}')
-        logger.debug(f'average bids+asks per message:   {(self.total_bids + self.total_asks) / (self.total_messages or 1):.1f}')
+        self.logger.debug('')
+        self.logger.debug(f'total depth update messages:     {self.total_messages}')
+        self.logger.debug(f'total bids processed:            {self.total_bids}')
+        self.logger.debug(f'total asks processed:            {self.total_asks}')
+        self.logger.debug(f'average bids+asks per message:   {(self.total_bids + self.total_asks) / (self.total_messages or 1):.1f}')
 
 
 
@@ -164,27 +164,29 @@ class OrderBookSynchronizer:
         self.is_synced: bool = False
         self.initial_book_snapshot: dict = None
         self.book_updates: list = []
+        # logger
+        self.logger = get_logger(logger_name_with_symbol(__name__, self.symbol))
 
     def try_to_sync_book(self, update: dict):
         """
         Retrieves the initial order book snapshot, finds the first valid update
         updates state to reflect initial snapshot and valid updates relative to the snapshot.
         """
-        logger.info(f'trying to sync order book...')
+        self.logger.info(f'trying to sync order book...')
         # append update
         self.book_updates.append(update)
         # try to fetch initial snapshot
         if self.initial_book_snapshot is None:
-            logger.info(f'fetching order book snapshot from the REST API')
+            self.logger.info(f'fetching order book snapshot from the REST API')
             self.initial_book_snapshot = get_order_book_snapshot(self.symbol, limit=1000)
             if self.initial_book_snapshot is None:
-                logger.warning(f'failed to sync: unable to get initial snapshot from the REST API')
+                self.logger.warning(f'failed to sync: unable to get initial snapshot from the REST API')
                 return
-            logger.info(f'snapshot fetched (last update id: {self.initial_book_snapshot['lastUpdateId']})')
+            self.logger.info(f'snapshot fetched (last update id: {self.initial_book_snapshot['lastUpdateId']})')
         last_update_id = self.initial_book_snapshot['lastUpdateId']
         valid_updates = [x for x in self.book_updates if x['last_update_id'] > last_update_id]
         if len(valid_updates) == 0:
-            logger.warning(f'failed to sync: all buffered deltas are older than the snapshot')
+            self.logger.warning(f'failed to sync: all buffered deltas are older than the snapshot')
             return
         # find the first update based on the initial snapshot
         first_update_to_process = None
@@ -193,9 +195,9 @@ class OrderBookSynchronizer:
                 first_update_to_process = update
                 break
         if first_update_to_process is None:
-            logger.warning(f'failed to sync: didn\'t find first update to process')
+            self.logger.warning(f'failed to sync: didn\'t find first update to process')
             return
         # keep only updates from first_update_to_process onward
         self.book_updates = [x for x in self.book_updates if x['first_update_id'] >= first_update_to_process['first_update_id']]
-        logger.info(f'successfully synced book to first_update_id = {first_update_to_process['first_update_id']}')
+        self.logger.info(f'successfully synced book to first_update_id = {first_update_to_process['first_update_id']}')
         self.is_synced = True

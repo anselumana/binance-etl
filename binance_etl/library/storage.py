@@ -1,9 +1,8 @@
 import os
 import pandas as pd
 from binance_etl.library.logger import get_logger
+from binance_etl.library.utils import logger_name_with_symbol
 
-
-logger = get_logger(__name__)
 
 class StorageProvider:
     """
@@ -16,13 +15,15 @@ class StorageProvider:
         self.trades_buffer = pd.DataFrame()
         self.depth_updates_batches_saved = 0
         self.trades_batches_saved = 0
+        # logger
+        self.logger = get_logger(logger_name_with_symbol(__name__, self.symbol_id))
 
     def add_depth_updates(self, depth_updates: pd.DataFrame):
         self.depth_updates_buffer = pd.concat([self.depth_updates_buffer, depth_updates])
         if len(self.depth_updates_buffer) >= self.batch_size:
             self._save_depth_updates()
             self.depth_updates_batches_saved += 1
-            logger.info(f'{self.symbol_id}: chunk #{self.depth_updates_batches_saved}: saved {len(self.depth_updates_buffer)} depth updates')
+            self.logger.info(f'chunk #{self.depth_updates_batches_saved}: saved {len(self.depth_updates_buffer)} depth updates')
             self.depth_updates_buffer = pd.DataFrame()
     
     def add_trades(self, trades: pd.DataFrame):
@@ -30,7 +31,7 @@ class StorageProvider:
         if len(self.trades_buffer) >= self.batch_size:
             self._save_trades()
             self.trades_batches_saved += 1
-            logger.info(f'{self.symbol_id}: chunk #{self.trades_batches_saved}: saved {len(self.trades_buffer)} trades')
+            self.logger.info(f'chunk #{self.trades_batches_saved}: saved {len(self.trades_buffer)} trades')
             self.trades_buffer = pd.DataFrame()
     
     def _save_depth_updates(self):

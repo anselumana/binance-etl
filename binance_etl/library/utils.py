@@ -27,3 +27,6 @@ def is_none_or_empty(s: str) -> bool:
 def load_config(path: str = None) -> dict:
     with open(path or './config.json') as config:
         return json.loads(config.read())
+
+def logger_name_with_symbol(name: str, symbol: str):
+    return f'{name} [{symbol}]'
