@@ -1,7 +1,7 @@
 {
     "events": [
-        "binance.spot.btcusdt.trade",
-        "binance.spot.btcusdt.depth"
+        "binance.spot.bnbusdt.trade",
+        "binance.spot.bnbusdt.depth"
     ],
     "storage": {
         "enabled": "csv",
@@ -12,6 +12,17 @@
         "bigquery": {
             "api_key": "",
             "batch_size": 1000
+        }
+    },
+    "logging": {
+        "console": {
+            "enabled": true,
+            "level": "INFO"
+        },
+        "file": {
+            "enabled": false,
+            "level": "INFO",
+            "file_path": "binance_etl.log"
         }
     }
 }

@@ -1,6 +1,8 @@
 import logging
 import colorlog
 
+from binance_etl.library.utils import load_config
+
 
 def get_logger(name):
     """
@@ -13,10 +15,14 @@ def get_logger(name):
     enable_file_handler = False
 
     if not logger.hasHandlers():
-        if enable_console_handler:
+        config = load_config()
+        logging_config = config['logging']
+        mappings = logging.getLevelNamesMapping()
+
+        if bool(logging_config['console']['enabled']):
             # Create a colored console handler
             console_handler = logging.StreamHandler()
-            console_handler.setLevel(logging.DEBUG)
+            console_handler.setLevel(mappings[logging_config['console']['level']])
             # Create color formatter for the console with valid color names
             color_formatter = colorlog.ColoredFormatter(
                 "%(log_color)s%(asctime)s - %(name)s - %(levelname)s - %(message)s",
@@ -34,10 +40,10 @@ def get_logger(name):
             # Add handlers to the logger
             logger.addHandler(console_handler)
 
-        if enable_file_handler:
+        if bool(logging_config['file']['enabled']):
             # Create a file handler (no color for files)
-            file_handler = logging.FileHandler('app.log')
-            file_handler.setLevel(logging.DEBUG)
+            file_handler = logging.FileHandler(logging_config['file']['file_path'])
+            file_handler.setLevel(mappings[logging_config['file']['level']])
             # Create normal formatter for the file (no color)
             file_formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
             file_handler.setFormatter(file_formatter)
