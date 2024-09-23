@@ -9,6 +9,17 @@
                 "depth_updates",
                 "trades"
             ]
+        },
+        
+        {
+            "name": "ethusdt",
+            "markets": [
+                "spot"
+            ],
+            "events": [
+                "depth_updates",
+                "trades"
+            ]
         }
     ],
     "storage": {
