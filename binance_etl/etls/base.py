@@ -1,4 +1,5 @@
 from typing import List
+from binance_etl.etls.spot_trades_etl import SpotTradesETL
 from binance_etl.library.model import ETLBase
 from binance_etl.etls.spot_depth_updates_etl import SpotDepthUpdatesETL
 from binance_etl.library.factory import get_storage_provider
@@ -38,17 +39,16 @@ class SymbolETL(ETLBase):
     def _get_etls(self) -> List[ETLBase]:
         etls = []
         if 'depth_updates' in self.events and 'spot' in self.markets:
-            # get storage provider
-            symbol_id = f'{self.symbol}.spot'
-            storage = get_storage_provider(symbol_id)
+            storage = get_storage_provider(f'{self.symbol}.spot')
             etls.append(SpotDepthUpdatesETL(self.symbol, storage))
         if 'trades' in self.events and 'spot' in self.markets:
-            # self.etls.append(SpotTradesETL(self.symbol))
+            storage = get_storage_provider(f'{self.symbol}.spot')
+            etls.append(SpotTradesETL(self.symbol, storage))
             pass
         if 'depth_updates' in self.events and 'futures' in self.markets:
-            # self.etls.append(FuturesDepthUpdatesETL(self.symbol))
+            # etls.append(FuturesDepthUpdatesETL(self.symbol))
             pass
         if 'trades' in self.events and 'futures' in self.markets:
-            # self.etls.append(FuturesTradesETL(self.symbol))
+            # etls.append(FuturesTradesETL(self.symbol))
             pass
         return etls

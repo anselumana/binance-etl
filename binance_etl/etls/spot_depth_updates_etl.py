@@ -12,7 +12,7 @@ from binance_etl.library.utils import logger_name_with_symbol
 
 class SpotDepthUpdatesETL(ETLBase):
     """
-    Manages the recording of incremental order book L2 updates.
+    ETL to record spot order book depth updates.
     """
     def __init__(self,
                  symbol: str,
@@ -39,7 +39,7 @@ class SpotDepthUpdatesETL(ETLBase):
         Starts order book recording.
         """
         self.logger.info(f'starting depth updates ETL for binance:{self.symbol} spot pair')
-        # connect to depth stream with our message handler
+        # connect to depth stream
         self.binance_ws_client.diff_book_depth(symbol=self.symbol)
     
     def stop(self):
@@ -80,22 +80,26 @@ class SpotDepthUpdatesETL(ETLBase):
         # update debug stats
         self._update_debug_stats(update)
     
-    def _deserialize_depth_message(self, message: str):
+    def _deserialize_depth_message(self, message: str) -> dict:
         """
-        Deserializes depth update message and maps it to our model.
+        Deserializes depth update message and maps it to our model.\n
+        https://developers.binance.com/docs/binance-spot-api-docs/web-socket-streams#diff-depth-stream
         """
+        res = None
         try:
             update = json.loads(message)
-            return {
-                'timestamp': update['E'], # ms
-                'local_timestamp': self.local_timestamp,
-                'bids': update['b'],
-                'asks': update['a'],
-                'first_update_id': update['U'],
-                'last_update_id': update['u'],
-            }
+            if update['e'] == 'depthUpdate':
+                res = {
+                    'timestamp': update['E'], # ms
+                    'local_timestamp': self.local_timestamp,
+                    'bids': update['b'],
+                    'asks': update['a'],
+                    'first_update_id': update['U'],
+                    'last_update_id': update['u'],
+                }
         except Exception as ex:
             self.logger.warning(f'Unable to deserialize depth update message: {ex}\nMessage body:\n{message}')
+        return res
     
     def _is_consistent(self, update: dict):
         """
@@ -111,7 +115,7 @@ class SpotDepthUpdatesETL(ETLBase):
         self.last_book_update = update
         return is_consistent
 
-    def _save_update(self, update, is_initial_snapshot = False):
+    def _save_update(self, update: dict, is_initial_snapshot = False):
         bids_range = range(len(update['bids']))
         bids = pd.DataFrame({
             'timestamp': [update['timestamp'] for _ in bids_range],

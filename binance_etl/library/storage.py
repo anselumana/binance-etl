@@ -11,28 +11,28 @@ class StorageProvider:
     def __init__(self, symbol_id: str, batch_size: int):
         self.symbol_id = symbol_id
         self.batch_size = batch_size
-        self.depth_updates_buffer = pd.DataFrame()
-        self.trades_buffer = pd.DataFrame()
+        self.depth_updates_df = pd.DataFrame()
+        self.trades_df = pd.DataFrame()
         self.depth_updates_batches_saved = 0
         self.trades_batches_saved = 0
         # logger
         self.logger = get_logger(logger_name_with_symbol(__name__, self.symbol_id))
 
     def add_depth_updates(self, depth_updates: pd.DataFrame):
-        self.depth_updates_buffer = pd.concat([self.depth_updates_buffer, depth_updates])
-        if len(self.depth_updates_buffer) >= self.batch_size:
+        self.depth_updates_df = pd.concat([self.depth_updates_df, depth_updates])
+        if len(self.depth_updates_df) >= self.batch_size:
             self._save_depth_updates()
             self.depth_updates_batches_saved += 1
-            self.logger.info(f'chunk #{self.depth_updates_batches_saved}: saved {len(self.depth_updates_buffer)} depth updates')
-            self.depth_updates_buffer = pd.DataFrame()
+            self.logger.info(f'chunk #{self.depth_updates_batches_saved}: saved {len(self.depth_updates_df)} depth updates')
+            self.depth_updates_df = pd.DataFrame()
     
     def add_trades(self, trades: pd.DataFrame):
-        self.trades_buffer = pd.concat([self.trades_buffer, trades])
-        if len(self.trades_buffer) >= self.batch_size:
+        self.trades_df = pd.concat([self.trades_df, trades])
+        if len(self.trades_df) >= self.batch_size:
             self._save_trades()
             self.trades_batches_saved += 1
-            self.logger.info(f'chunk #{self.trades_batches_saved}: saved {len(self.trades_buffer)} trades')
-            self.trades_buffer = pd.DataFrame()
+            self.logger.info(f'chunk #{self.trades_batches_saved}: saved {len(self.trades_df)} trades')
+            self.trades_df = pd.DataFrame()
     
     def _save_depth_updates(self):
         "To implement in subclasses"
@@ -59,7 +59,14 @@ class CsvStorage(StorageProvider):
         Saves depth updates to csv.
         """
         write_header = self.depth_updates_batches_saved == 0
-        self.depth_updates_buffer.to_csv(self.depth_updates_path, index=False, mode='a', header=write_header)
+        self.depth_updates_df.to_csv(self.depth_updates_path, index=False, mode='a', header=write_header)
+
+    def _save_trades(self):
+        """
+        Saves trades to csv.
+        """
+        write_header = self.trades_batches_saved == 0
+        self.trades_df.to_csv(self.trades_path, index=False, mode='a', header=write_header)
         
     def _create_file_with_directories(self, file_path: str):
         directory = os.path.dirname(file_path)
