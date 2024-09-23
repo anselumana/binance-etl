@@ -1,22 +1,23 @@
 import os
 import pandas as pd
 from binance_etl.library.logger import get_logger
-from binance_etl.library.utils import logger_name_with_symbol
+from binance_etl.library.utils import get_logger_name
 
 
 class StorageProvider:
     """
     Base class for storage provider implementations.
     """
-    def __init__(self, symbol_id: str, batch_size: int):
-        self.symbol_id = symbol_id
+    def __init__(self, market: str, symbol: str, batch_size: int):
+        self.market = market
+        self.symbol = symbol
         self.batch_size = batch_size
         self.depth_updates_df = pd.DataFrame()
         self.trades_df = pd.DataFrame()
         self.depth_updates_batches_saved = 0
         self.trades_batches_saved = 0
         # logger
-        self.logger = get_logger(logger_name_with_symbol(__name__, self.symbol_id))
+        self.logger = get_logger(get_logger_name(__name__, market, symbol))
 
     def add_depth_updates(self, depth_updates: pd.DataFrame):
         self.depth_updates_df = pd.concat([self.depth_updates_df, depth_updates])
@@ -47,10 +48,15 @@ class CsvStorage(StorageProvider):
     """
     CSV implementation of storage.
     """
-    def __init__(self, symbol_id: str, batch_size: int, base_path: str):
-        super().__init__(symbol_id, batch_size)
-        self.depth_updates_path = os.path.join(base_path, f'{self.symbol_id}.depth_updates.csv')
-        self.trades_path = os.path.join(base_path, f'{self.symbol_id}.trades.csv')
+    def __init__(self,
+                 market: str,
+                 symbol: str,
+                 batch_size: int,
+                 base_path: str):
+        super().__init__(market, symbol, batch_size)
+        symbol_id = f'{self.symbol}.{self.market}'
+        self.depth_updates_path = os.path.join(base_path, f'{symbol_id}.depth.csv')
+        self.trades_path = os.path.join(base_path, f'{symbol_id}.trades.csv')
         self._create_file_with_directories(self.depth_updates_path)
         self._create_file_with_directories(self.trades_path)
 

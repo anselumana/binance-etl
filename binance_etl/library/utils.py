@@ -7,5 +7,10 @@ def load_config() -> dict:
     with open(path) as config:
         return json.loads(config.read())
 
-def logger_name_with_symbol(name: str, symbol: str):
-    return f'{name} [{symbol}]'
+def get_logger_name(module_name: str,
+                    market: str = None,
+                    symbol: str = None,
+                    event_type: str = None):
+    extra_info = [x for x in [market, symbol, event_type] if x]
+    return f'{module_name} [{'.'.join(extra_info)}]'
+    

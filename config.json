@@ -1,22 +1,17 @@
 {
-    "symbols": [
-        {
-            "name": "btcusdt",
-            "markets": [
-                "spot"
-            ],
-            "events": [
-                "depth_updates",
-                "trades"
-            ]
-        }
+    "events": [
+        "binance.spot.btcusdt.trade",
+        "binance.spot.btcusdt.depth"
     ],
     "storage": {
-        "csv_storage_enabled": true,
-        "csv_base_path": "./output",
-        "csv_batch_size": 1000,
-        "bigquery_storage_enabled": false,
-        "bigquery_api_key": "",
-        "bigquery_batch_size": 1000
+        "enabled": "csv",
+        "csv": {
+            "base_path": "./output",
+            "batch_size": 1000
+        },
+        "bigquery": {
+            "api_key": "",
+            "batch_size": 1000
+        }
     }
 }

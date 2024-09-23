@@ -1,17 +1,19 @@
-import sys
 import signal
 from typing import List
 from dotenv import load_dotenv
 load_dotenv()
-from binance_etl.etls.base import ETLBase
-from binance_etl.etls.base import SymbolETL
-from binance_etl.library.utils import load_config
+from binance_etl.etls.base import BinanceETL
 from binance_etl.library.logger import get_logger
+from binance_etl.library.factory import get_etls
 
 
 logger = get_logger(__name__)
 
-def handle_shutdown_signal(signal_number, frame, etls: List[ETLBase]):
+def register_signal_handlers(etls: List[BinanceETL]):
+    signal.signal(signal.SIGINT, lambda signal_number, frame: handle_shutdown_signal(signal_number, frame, etls))   # Handle Ctrl+C
+    signal.signal(signal.SIGTERM, lambda signal_number, frame: handle_shutdown_signal(signal_number, frame, etls))  # Handle kill/termination
+
+def handle_shutdown_signal(signal_number, frame, etls: List[BinanceETL]):
     logger.info(f"intercepted signal {signal_number}, cleaning up before shutdown...")
     # stop ETLs
     for etl in etls:
@@ -19,20 +21,11 @@ def handle_shutdown_signal(signal_number, frame, etls: List[ETLBase]):
     logger.info('exiting binance-etl')
     # sys.exit(0)  # Exit gracefully
 
-def register_signal_handlers(etls: List[ETLBase]):
-    signal.signal(signal.SIGINT, lambda signal_number, frame: handle_shutdown_signal(signal_number, frame, etls))   # Handle Ctrl+C
-    signal.signal(signal.SIGTERM, lambda signal_number, frame: handle_shutdown_signal(signal_number, frame, etls))  # Handle kill/termination
-
 
 if __name__ == '__main__':
     logger.info('starting binance-etl')
-    # get config
-    config = load_config()
-    # create ETLs for each symbol
-    etls: List[ETLBase] = []
-    for symbol_info in config['symbols']:
-        etl = SymbolETL(symbol_info['name'], symbol_info['markets'], symbol_info['events'])
-        etls.append(etl)
+    # get ETLs
+    etls = get_etls()
     # register signal handlers
     register_signal_handlers(etls)
     # start ETLs

@@ -1,8 +1,11 @@
 import logging
 import colorlog
 
-# Function to configure and return the logger with supported color names
+
 def get_logger(name):
+    """
+    Returns a logger with custom config.
+    """
     logger = logging.getLogger(name)
     logger.setLevel(logging.DEBUG)
 

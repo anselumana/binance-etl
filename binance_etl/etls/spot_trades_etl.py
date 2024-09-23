@@ -1,75 +1,50 @@
 import json
-import time
-from typing import Any
 import pandas as pd
-from binance.websocket.spot.websocket_stream import SpotWebsocketStreamClient
-from binance_etl.library.model import ETLBase
+from binance_etl.etls.base import BinanceETL
 from binance_etl.library.storage import StorageProvider
-from binance_etl.library.logger import get_logger
-from binance_etl.library.utils import logger_name_with_symbol
 
 
-class SpotTradesETL(ETLBase):
+class SpotTradesETL(BinanceETL):
     """
     ETL to record spot market trades.
     """
-    def __init__(self,
-                 symbol: str,
-                 storage: StorageProvider):
-        # set params
-        self.symbol = symbol
-        self.storage = storage
-        # logger
-        self.logger = get_logger(logger_name_with_symbol(__name__, self.symbol))
-        # binance websocket client
-        self.binance_ws_client = SpotWebsocketStreamClient(on_message=self._process_message)
-        # state variables
-        self.local_timestamp = 0 # arrival timestamp of websocket messages in ms
-        # debug stats
-        self.total_trades: int = 0
+    def __init__(self, symbol: str, storage: StorageProvider):
+        super().__init__('spot', symbol, 'trade', storage)
     
     def start(self):
         """
         Starts trades recording.
         """
-        self.logger.info(f'starting trades ETL for binance:{self.symbol} spot pair')
+        self.logger.info(f'starting trades ETL')
         # connect to trades stream
         self.binance_ws_client.trade(symbol=self.symbol)
+        super().start()
     
     def stop(self):
         """
         Gracefully stops trades recording.
         """
-        self.logger.info(f'stopping trades ETL for binance:{self.symbol} spot pair')
-        # close websocket connection
-        self.binance_ws_client.stop()
-        self._log_debug_stats()
+        self.logger.info(f'stopping trades ETL')
+        super().stop()
 
-    def _process_message(self, _: Any, message: str):
+    def _handle_message(self, message: str):
         """
         Trades handler.
         """
-        # update message arrival timestamp
-        self.local_timestamp = int(time.time() * 1_000)
-        # deresialize trade
-        trade = self._deserialize_trade_message(message)
-        if trade is None:
-            return
-        self.logger.debug(f'processing trade {trade['id']}')
+        self.logger.debug(f'processing trade {message['id']} ({message['side']} {message['quantity']} @{message['price']})')
         # save trades to storage
-        self._save_trade(trade)
-        # update debug stats
-        self._update_debug_stats(trade)
+        self._save_trade(message)
     
-    def _deserialize_trade_message(self, message: str) -> dict:
+    def _deserialize_message(self, message: str) -> dict:
         """
-        Deserializes trade message and maps it to our model.\n
+        Deserializes trade message.\n
         https://developers.binance.com/docs/binance-spot-api-docs/web-socket-streams#trade-streams
         """
         res = None
         try:
             trade = json.loads(message)
-            if trade['e'] == 'trade':
+            # ignore events that are not 'trade' (which is usually only the first message)
+            if 'e' in trade.keys() and trade['e'] == 'trade':
                 res = {
                     'timestamp': trade['E'], # ms
                     'local_timestamp': self.local_timestamp,
@@ -85,10 +60,3 @@ class SpotTradesETL(ETLBase):
     def _save_trade(self, trade: dict):
         df = pd.DataFrame({ key: [value] for key, value in trade.items() })
         self.storage.add_trades(df)
-    
-    def _update_debug_stats(self, trade: dict):
-        self.total_trades += 1
-
-    def _log_debug_stats(self):
-        self.logger.debug('')
-        self.logger.debug(f'total trades: {self.total_trades}')
