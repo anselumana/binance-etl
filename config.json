@@ -1,0 +1,22 @@
+{
+    "symbols": [
+        {
+            "name": "btcusdt",
+            "markets": [
+                "spot",
+                "usdm_futures",
+                "coinm_futures"
+            ],
+            "events": [
+                "depth_updates",
+                "trades"
+            ]
+        }
+    ],
+    "save_to_csv": true,
+    "csv_base_path": "",
+    "csv_batch_size": 100,
+    "save_to_bigquery": false,
+    "bigquery_api_key": "",
+    "bigquery_batch_size": 1000
+}
