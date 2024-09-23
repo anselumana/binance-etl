@@ -14,4 +14,4 @@ RUN pip install --no-cache-dir -r requirements.txt
 COPY binance_etl ./binance_etl
 
 # Run the service
-CMD ["python3", "./binance_etl/main.py"]
+CMD ["python3", "-m binance_etl.main"]
