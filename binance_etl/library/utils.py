@@ -1,8 +1,5 @@
 import json
-from binance_etl.library.logger import get_logger
 
-
-logger = get_logger(__name__)
 
 def flatten(list_of_lists: list):
     return sum(list_of_lists, [])
