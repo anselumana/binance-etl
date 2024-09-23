@@ -6,7 +6,7 @@ from binance.websocket.spot.websocket_stream import SpotWebsocketStreamClient
 from binance_etl.library.model import ETLBase
 from binance_etl.library.storage import StorageProvider
 from binance_etl.library.logger import get_logger
-from binance_etl.library.utils import get_order_book_snapshot, flatten
+from binance_etl.library.utils import get_order_book_snapshot
 
 
 logger = get_logger(__name__)
