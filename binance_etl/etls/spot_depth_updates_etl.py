@@ -3,10 +3,11 @@ import time
 from typing import Any
 import pandas as pd
 from binance.websocket.spot.websocket_stream import SpotWebsocketStreamClient
+from binance.spot import Spot
 from binance_etl.library.model import ETLBase
 from binance_etl.library.storage import StorageProvider
 from binance_etl.library.logger import get_logger
-from binance_etl.library.utils import get_order_book_snapshot, logger_name_with_symbol
+from binance_etl.library.utils import logger_name_with_symbol
 
 
 class SpotDepthUpdatesETL(ETLBase):
@@ -21,7 +22,7 @@ class SpotDepthUpdatesETL(ETLBase):
         self.storage = storage
         # logger
         self.logger = get_logger(logger_name_with_symbol(__name__, self.symbol))
-        # binance websocket manager
+        # binance websocket client
         self.binance_ws_client = SpotWebsocketStreamClient(on_message=self._process_message)
         # book synchronizer
         self.book_synchronizer = OrderBookSynchronizer(symbol)
@@ -164,6 +165,8 @@ class OrderBookSynchronizer:
         self.is_synced: bool = False
         self.initial_book_snapshot: dict = None
         self.book_updates: list = []
+        # binance rest client
+        self.binance_client = Spot()
         # logger
         self.logger = get_logger(logger_name_with_symbol(__name__, self.symbol))
 
@@ -178,11 +181,12 @@ class OrderBookSynchronizer:
         # try to fetch initial snapshot
         if self.initial_book_snapshot is None:
             self.logger.info(f'fetching order book snapshot from the REST API')
-            self.initial_book_snapshot = get_order_book_snapshot(self.symbol, limit=1000)
-            if self.initial_book_snapshot is None:
-                self.logger.warning(f'failed to sync: unable to get initial snapshot from the REST API')
+            try:
+                self.initial_book_snapshot = self.binance_client.depth(self.symbol.upper(), limit=1000)
+                self.logger.info(f'snapshot fetched (last update id: {self.initial_book_snapshot['lastUpdateId']})')
+            except Exception as ex:
+                self.logger.warning(f'failed to sync: unable to get initial snapshot from the REST API: {ex}')
                 return
-            self.logger.info(f'snapshot fetched (last update id: {self.initial_book_snapshot['lastUpdateId']})')
         last_update_id = self.initial_book_snapshot['lastUpdateId']
         valid_updates = [x for x in self.book_updates if x['last_update_id'] > last_update_id]
         if len(valid_updates) == 0:
