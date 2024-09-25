@@ -10,7 +10,8 @@
 
 [Getting started](#getting-started) •
 [Data](#data) •
-[Export](#export)
+[Export](#export) •
+[Kaggle](#kaggle)
 
 </div>
 
@@ -41,8 +42,6 @@ The program supports the collection and storage of the following **trading event
 |-|-|-|
 | [Depth updates](#depth-updates) | ✅ | ❌ |
 | [Trades](#trades) | ✅ | ❌ |
-
-If you're looking for some **ready to use datasets**, I've exported some sample data to [this kaggle dataset][kaggle-binance-trading-events-dataset], and you can check some started code in [this kaggle notebook][kaggle-binance-trading-events-notebook].
 
 ### Depth updates
 Depth updates events are **order book updates** streamed from [binance websockets **depth** stream][binance-docs-websocket-depth].
@@ -83,6 +82,9 @@ The program supports the following export destinations:
 |-|-|
 | Local CSV files | ✅ |
 | Google BigQuery | ❌ *(coming soon)* |
+
+## Kaggle
+If you're looking for some **ready to use datasets**, I've exported some sample data to [this kaggle dataset][kaggle-binance-trading-events-dataset], and you can check some started code in [this kaggle notebook][kaggle-binance-trading-events-notebook].
 
 
 
