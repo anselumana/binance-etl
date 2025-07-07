@@ -10,6 +10,15 @@
             "request": "launch",
             "program": "${file}",
             "console": "integratedTerminal"
+        },
+        {
+            "name": "Python: binance_etl",
+            "type": "debugpy",
+            "request": "launch",
+            "module": "binance_etl.main",
+            "justMyCode": false,
+            "console": "integratedTerminal",
+            "args": []
         }
     ]
 }
