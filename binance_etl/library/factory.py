@@ -9,35 +9,36 @@ from binance_etl.library.utils import load_config
 def get_etls() -> List[BinanceETL]:
     etls: List[BinanceETL] = []
     config = load_config()
-    events: List[str] = config['events']
+    events: List[str] = config["events"]
     for event in events:
-        exchange, market, symbol, event_type = event.split('.')
+        exchange, market, symbol, event_type = event.split(".")
         etl = get_etl(market, symbol, event_type)
         etls.append(etl)
     return etls
 
+
 def get_etl(market: str, symbol: str, event_type: str):
     storage = get_storage_provider(market, symbol)
-    if market == 'spot':
-        if event_type == 'trade':
+    if market == "spot":
+        if event_type == "trade":
             return SpotTradesETL(symbol, storage)
-        if event_type == 'depth':
+        if event_type == "depth":
             return SpotDepthETL(symbol, storage)
-    if market == 'usdm_futures':
+    if market == "usdm_futures":
         pass
-    if market == 'coinm_futures':
+    if market == "coinm_futures":
         pass
-    raise Exception(f'No ETL found for @{event_type} events on {market} {symbol}')
+    raise Exception(f"No ETL found for @{event_type} events on {market} {symbol}")
 
 
 def get_storage_provider(market: str, symbol: str) -> StorageProvider:
     config = load_config()
-    storage = config['storage']
-    if storage['enabled'] == 'csv':
-        batch_size = storage['csv']['batch_size']
-        base_path = storage['csv']['base_path']
+    storage = config["storage"]
+    if storage["enabled"] == "csv":
+        batch_size = storage["csv"]["batch_size"]
+        base_path = storage["csv"]["base_path"]
         return CsvStorage(market, symbol, batch_size, base_path)
-    if storage['enabled'] == 'bigquery':
+    if storage["enabled"] == "bigquery":
         # todo: support bigquery
         pass
-    raise Exception(f'could not find any enabled storage providers in config')
+    raise Exception(f"could not find any enabled storage providers in config")

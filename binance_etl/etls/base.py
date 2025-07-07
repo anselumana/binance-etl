@@ -11,11 +11,10 @@ class BinanceETL:
     Base implementation for Binance trading events ETL.\n
     Implement core logic in subclasses.
     """
-    def __init__(self,
-                 market: str,
-                 symbol: str,
-                 event_type: str,
-                 storage: StorageProvider):
+
+    def __init__(
+        self, market: str, symbol: str, event_type: str, storage: StorageProvider
+    ):
         self.market = market
         self.symbol = symbol
         self.event_type = event_type
@@ -23,9 +22,11 @@ class BinanceETL:
         # logger
         self.logger = get_logger(get_logger_name(__name__, market, symbol, event_type))
         # binance websocket client
-        self.binance_ws_client = SpotWebsocketStreamClient(on_message=self._process_message)
+        self.binance_ws_client = SpotWebsocketStreamClient(
+            on_message=self._process_message
+        )
         # state variables
-        self.local_timestamp = 0 # arrival timestamp of websocket messages in ms
+        self.local_timestamp = 0  # arrival timestamp of websocket messages in ms
         # debug stats
         self.total_messages: int = 0
 
@@ -43,7 +44,7 @@ class BinanceETL:
         # close websocket connection
         self.binance_ws_client.stop()
         self._log_debug_stats()
-    
+
     def _process_message(self, _: Any, message: str):
         """
         Websocket message handler.
@@ -58,24 +59,24 @@ class BinanceETL:
         self._handle_message(entity)
         # update debug stats
         self._update_debug_stats(entity)
-    
+
     def _handle_message(self, entity: dict):
         """
         To implement in subclasses.\n
         Core logic of the ETL.
         """
         raise NotImplementedError()
-    
+
     def _deserialize_message(self, message: str) -> dict:
         """
         To implement in subclasses.\n
         Deserializes the message from the websocket.
         """
         raise NotImplementedError()
-    
+
     def _update_debug_stats(self, entity: dict):
         self.total_messages += 1
-        
+
     def _log_debug_stats(self):
-        self.logger.debug('')
-        self.logger.debug(f'total messages processed: {self.total_messages}')
+        self.logger.debug("")
+        self.logger.debug(f"total messages processed: {self.total_messages}")
